@@ -1177,7 +1177,7 @@ create policy "Usuarios pueden borrar su propia nutricion"
               <p className="text-secondary text-xs mb-3 leading-relaxed">
                 Crea una hoja en Excel o Google Sheets con los siguientes encabezados en la primera fila (no distingue mayúsculas/acentos y el orden es libre). Luego, guarda como archivo <strong>CSV (separado por comas o punto y coma)</strong> y súbelo.
               </p>
-              <div style={{ maxHeight: '180px', overflowY: 'auto', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-light)', borderRadius: '8px', padding: '0.75rem' }}>
+              <div style={{ maxHeight: '180px', overflowY: 'auto', overflowX: 'auto', WebkitOverflowScrolling: 'touch', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-light)', borderRadius: '8px', padding: '0.75rem' }}>
                 <table className="instructions-table" style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--border-light)', color: 'var(--text-primary)' }}>
@@ -1342,7 +1342,7 @@ create policy "Usuarios pueden borrar su propia nutricion"
             </div>
 
             {/* Redesigned Card: Import CSV / Excel with Drag & Drop Zone */}
-            <div className="glass-card admin-card large-admin-card" style={{ gridColumn: 'span 2', minHeight: 'auto' }}>
+            <div className="glass-card admin-card large-admin-card">
               <div className="admin-card-content" style={{ gap: '1rem' }}>
                 <div>
                   <h3 className="admin-card-title flex-center" style={{ gap: '8px', color: 'var(--color-running)' }}>
@@ -1377,7 +1377,7 @@ create policy "Usuarios pueden borrar su propia nutricion"
                   style={{ display: 'none' }}
                 />
                 
-                <div className="flex-buttons-row" style={{ marginTop: '0.5rem', width: '100%', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                <div className="flex-buttons-row-end">
                   <button 
                     type="button"
                     className="btn btn-secondary flex-center text-xs" 
@@ -1628,7 +1628,7 @@ create policy "Usuarios pueden borrar su propia nutricion"
         /* Grid */
         .data-cards-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+          grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
           gap: 1.5rem;
         }
 
@@ -1643,6 +1643,17 @@ create policy "Usuarios pueden borrar su propia nutricion"
         .large-admin-card {
           border-color: rgba(16, 185, 129, 0.15);
           background: rgba(16, 185, 129, 0.01);
+          grid-column: span 2;
+          min-height: auto;
+        }
+
+        .flex-buttons-row-end {
+          display: flex;
+          gap: 0.75rem;
+          margin-top: 0.5rem;
+          width: 100%;
+          justify-content: flex-end;
+          flex-wrap: wrap;
         }
 
         .large-admin-card:hover {
@@ -2075,6 +2086,131 @@ create policy "Usuarios pueden borrar su propia nutricion"
           background: rgba(239, 68, 68, 0.12);
           border: 1px solid rgba(239, 68, 68, 0.3);
           color: #ef4444;
+        }
+        /* ===== Mobile Responsive: DataManager ===== */
+        @media (max-width: 768px) {
+          .data-container {
+            gap: 1rem;
+          }
+
+          .data-header h1 {
+            font-size: 1.5rem;
+          }
+
+          /* Cards stack vertically */
+          .data-cards-grid {
+            grid-template-columns: 1fr;
+            gap: 1rem;
+          }
+
+          .large-admin-card {
+            grid-column: span 1;
+          }
+
+          /* Admin cards: icon on top, content below */
+          .admin-card {
+            flex-direction: column;
+            min-height: unset;
+            padding: 1.25rem;
+            gap: 0.85rem;
+          }
+
+          /* Supabase config card */
+          .supabase-config-card {
+            padding: 1.25rem;
+          }
+
+          /* Mapper: stack label and select vertically */
+          .mapper-field-card {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 0.75rem;
+            padding: 0.75rem;
+          }
+
+          .mapper-select {
+            width: 100%;
+          }
+
+          /* Wizard takeover card */
+          .import-wizard-takeover {
+            padding: 1rem;
+          }
+
+          .step-title {
+            font-size: 1.1rem;
+          }
+
+          /* Wizard header: stack on mobile */
+          .wizard-step-header > div {
+            flex-direction: column;
+            gap: 0.5rem;
+          }
+
+          /* Wizard footer: wrap buttons */
+          .wizard-footer-actions {
+            flex-wrap: wrap;
+            gap: 0.75rem;
+          }
+
+          .wizard-footer-actions .btn {
+            flex: 1 1 auto;
+            min-width: 0;
+            justify-content: center;
+          }
+
+          /* Import mode selector wraps below buttons */
+          .import-mode-selector-wizard {
+            order: -1;
+            margin: 0 !important;
+            width: 100%;
+          }
+
+          /* Preview table: horizontal scroll */
+          .preview-table-container {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+          }
+
+          .preview-table {
+            min-width: 520px;
+          }
+
+          /* Instructions table: scroll horizontally */
+          .instructions-table {
+            min-width: 420px;
+          }
+
+          /* Drag zone: smaller padding */
+          .drag-drop-zone {
+            padding: 1.25rem 1rem;
+          }
+
+          /* Collapse flex rows in buttons */
+          .flex-buttons-row, .flex-buttons-row-end {
+            flex-direction: column;
+            gap: 0.6rem;
+          }
+
+          .flex-buttons-row .btn, .flex-buttons-row-end .btn {
+            width: 100%;
+            justify-content: center;
+          }
+        }
+
+        @media (max-width: 480px) {
+          .data-header h1 {
+            font-size: 1.25rem;
+          }
+
+          .admin-card-icon-wrapper {
+            width: 40px;
+            height: 40px;
+          }
+
+          .import-wizard-takeover {
+            border-radius: 12px;
+          }
         }
       `}</style>
     </div>

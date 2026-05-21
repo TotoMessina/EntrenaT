@@ -15,6 +15,7 @@ import { calculateAchievements, calculateActiveStreak } from './utils/achievemen
 import { Award, Sun, Moon, Printer, Flame, TrendingUp } from 'lucide-react';
 import NutritionView from './components/NutritionView';
 import ReportModal from './components/ReportModal';
+import PerformanceHub from './components/PerformanceHub';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('overview');
@@ -22,6 +23,48 @@ export default function App() {
   const [isAddWorkoutOpen, setIsAddWorkoutOpen] = useState(false);
   const [addWorkoutPreset, setAddWorkoutPreset] = useState(null);
   const [isReportOpen, setIsReportOpen] = useState(false);
+
+  // --- SHOE TRACKER STATE ---
+  const [shoes, setShoes] = useState(() => {
+    const stored = localStorage.getItem('fitanalytics_shoes');
+    if (stored) {
+      try { return JSON.parse(stored); } catch (e) { console.error("Error reading shoes", e); return []; }
+    }
+    return [];
+  });
+
+  // Persist shoes
+  useEffect(() => {
+    localStorage.setItem('fitanalytics_shoes', JSON.stringify(shoes));
+  }, [shoes]);
+
+  // --- TRAINING PLANS STATE ---
+  const [plans, setPlans] = useState(() => {
+    const stored = localStorage.getItem('fitanalytics_training_plans');
+    if (stored) {
+      try { return JSON.parse(stored); } catch (e) { console.error("Error reading plans", e); return []; }
+    }
+    return [];
+  });
+
+  // Persist plans
+  useEffect(() => {
+    localStorage.setItem('fitanalytics_training_plans', JSON.stringify(plans));
+  }, [plans]);
+
+  // --- READINESS LOGS STATE ---
+  const [readinessLogs, setReadinessLogs] = useState(() => {
+    const stored = localStorage.getItem('fitanalytics_readiness_logs');
+    if (stored) {
+      try { return JSON.parse(stored); } catch (e) { console.error("Error reading readiness logs", e); return []; }
+    }
+    return [];
+  });
+
+  // Persist readiness logs
+  useEffect(() => {
+    localStorage.setItem('fitanalytics_readiness_logs', JSON.stringify(readinessLogs));
+  }, [readinessLogs]);
 
   // --- NUTRITION STATE ---
   const [nutritionLogs, setNutritionLogs] = useState(() => {
@@ -187,6 +230,42 @@ export default function App() {
     };
     setProfile(initialProfile);
 
+    // Load local shoes (fallback/offline cache)
+    const storedShoes = localStorage.getItem('fitanalytics_shoes');
+    let initialShoes = [];
+    if (storedShoes) {
+      try {
+        initialShoes = JSON.parse(storedShoes);
+      } catch (e) {
+        console.error("Error reading shoes from localstorage", e);
+      }
+    }
+    setShoes(initialShoes);
+
+    // Load local training plans (fallback/offline cache)
+    const storedPlans = localStorage.getItem('fitanalytics_training_plans');
+    let initialPlans = [];
+    if (storedPlans) {
+      try {
+        initialPlans = JSON.parse(storedPlans);
+      } catch (e) {
+        console.error("Error reading plans from localstorage", e);
+      }
+    }
+    setPlans(initialPlans);
+
+    // Load local readiness logs (fallback/offline cache)
+    const storedReadiness = localStorage.getItem('fitanalytics_readiness_logs');
+    let initialReadiness = [];
+    if (storedReadiness) {
+      try {
+        initialReadiness = JSON.parse(storedReadiness);
+      } catch (e) {
+        console.error("Error reading readiness logs from localstorage", e);
+      }
+    }
+    setReadinessLogs(initialReadiness);
+
     // 2. Initialize Supabase Auth listeners
     const client = getSupabase();
     if (client) {
@@ -206,6 +285,15 @@ export default function App() {
           syncProfileWithSupabase(client, initialProfile, s.user).then(mergedProfile => {
             setProfile(mergedProfile);
           });
+          syncShoesWithSupabase(client, initialShoes, s.user).then(mergedShoes => {
+            setShoes(mergedShoes);
+          });
+          syncPlansWithSupabase(client, initialPlans, s.user).then(mergedPlans => {
+            setPlans(mergedPlans);
+          });
+          syncReadinessWithSupabase(client, initialReadiness, s.user).then(mergedReadiness => {
+            setReadinessLogs(mergedReadiness);
+          });
         }
       });
 
@@ -224,11 +312,23 @@ export default function App() {
           syncProfileWithSupabase(client, initialProfile, newSession.user).then(mergedProfile => {
             setProfile(mergedProfile);
           });
+          syncShoesWithSupabase(client, initialShoes, newSession.user).then(mergedShoes => {
+            setShoes(mergedShoes);
+          });
+          syncPlansWithSupabase(client, initialPlans, newSession.user).then(mergedPlans => {
+            setPlans(mergedPlans);
+          });
+          syncReadinessWithSupabase(client, initialReadiness, newSession.user).then(mergedReadiness => {
+            setReadinessLogs(mergedReadiness);
+          });
         } else if (event === 'SIGNED_OUT') {
           // Revert back to local database view
           setWorkouts(initialWorkouts);
           setNutritionLogs(initialNutrition);
           setProfile(initialProfile);
+          setShoes(initialShoes);
+          setPlans(initialPlans);
+          setReadinessLogs(initialReadiness);
         }
       });
 
@@ -306,7 +406,8 @@ export default function App() {
             strideLength: remote.advanced_metrics?.strideLength || null,
             elevationGain: remote.advanced_metrics?.elevationGain || null,
             elevationLoss: remote.advanced_metrics?.elevationLoss || null,
-            splits: remote.advanced_metrics?.splits || null
+            splits: remote.advanced_metrics?.splits || null,
+            shoeId: remote.advanced_metrics?.shoeId || null
           });
         }
       }
@@ -329,14 +430,15 @@ export default function App() {
             sessionName: w.sessionName,
             exercises: w.exercises,
             gpx_data: w.gpxData,
-            advanced_metrics: (w.maxSpeed || w.avgCadence || w.strideLength || w.elevationGain || w.splits) ? {
-              maxSpeed: w.maxSpeed,
-              avgCadence: w.avgCadence,
-              maxCadence: w.maxCadence,
-              strideLength: w.strideLength,
-              elevationGain: w.elevationGain,
-              elevationLoss: w.elevationLoss,
-              splits: w.splits
+            advanced_metrics: (w.maxSpeed || w.avgCadence || w.strideLength || w.elevationGain || w.splits || w.shoeId || w.advanced_metrics?.shoeId) ? {
+              maxSpeed: w.maxSpeed || w.advanced_metrics?.maxSpeed || null,
+              avgCadence: w.avgCadence || w.advanced_metrics?.avgCadence || null,
+              maxCadence: w.maxCadence || w.advanced_metrics?.maxCadence || null,
+              strideLength: w.strideLength || w.advanced_metrics?.strideLength || null,
+              elevationGain: w.elevationGain || w.advanced_metrics?.elevationGain || null,
+              elevationLoss: w.elevationLoss || w.advanced_metrics?.elevationLoss || null,
+              splits: w.splits || w.advanced_metrics?.splits || null,
+              shoeId: w.shoeId || w.advanced_metrics?.shoeId || null
             } : null,
             user_id: activeUser.id
           })));
@@ -498,6 +600,193 @@ export default function App() {
     }
   };
 
+  const syncShoesWithSupabase = async (client, localShoes, activeUser) => {
+    if (!activeUser) return localShoes;
+    try {
+      const { data: remoteData, error } = await client
+        .from('shoes')
+        .select('*');
+
+      if (error) throw error;
+
+      const localMap = new Map(localShoes.map(s => [s.id, s]));
+      const remoteMap = new Map((remoteData || []).map(s => [s.id, s]));
+
+      const merged = [];
+      const toUpload = [];
+
+      // 1. Process local shoes
+      for (const local of localShoes) {
+        const remote = remoteMap.get(local.id);
+        if (!remote) {
+          toUpload.push({
+            id: local.id,
+            user_id: activeUser.id,
+            brand: local.brand,
+            model: local.model,
+            initial_km: Number(local.initialKm) || 0,
+            max_km: Number(local.maxKm) || 800,
+            buy_date: local.buyDate,
+            is_active: local.isActive !== false
+          });
+        }
+        merged.push(local);
+      }
+
+      // 2. Process remote shoes not in local
+      for (const remote of (remoteData || [])) {
+        if (!localMap.has(remote.id)) {
+          merged.push({
+            id: remote.id,
+            brand: remote.brand,
+            model: remote.model,
+            initialKm: Number(remote.initial_km) || 0,
+            maxKm: Number(remote.max_km) || 800,
+            buyDate: remote.buy_date,
+            isActive: remote.is_active !== false
+          });
+        }
+      }
+
+      // 3. Upload missing to cloud
+      if (toUpload.length > 0) {
+        const { error: uploadError } = await client
+          .from('shoes')
+          .upsert(toUpload);
+
+        if (uploadError) throw uploadError;
+      }
+
+      localStorage.setItem('fitanalytics_shoes', JSON.stringify(merged));
+      return merged;
+    } catch (e) {
+      console.error("Supabase shoes bi-directional sync failed:", e);
+      return localShoes;
+    }
+  };
+
+  const syncPlansWithSupabase = async (client, localPlans, activeUser) => {
+    if (!activeUser) return localPlans;
+    try {
+      const { data: remoteData, error } = await client
+        .from('training_plans')
+        .select('*');
+
+      if (error) throw error;
+
+      const localMap = new Map(localPlans.map(p => [p.date, p]));
+      const remoteMap = new Map((remoteData || []).map(p => [p.date, p]));
+
+      const merged = [];
+      const toUpload = [];
+
+      // 1. Process local plans
+      for (const local of localPlans) {
+        const remote = remoteMap.get(local.date);
+        if (!remote) {
+          toUpload.push({
+            date: local.date,
+            user_id: activeUser.id,
+            distance: Number(local.distance) || 0,
+            session_type: local.sessionType || 'Regenerativo',
+            note: local.note || ''
+          });
+        }
+        merged.push(local);
+      }
+
+      // 2. Process remote plans not in local
+      for (const remote of (remoteData || [])) {
+        if (!localMap.has(remote.date)) {
+          merged.push({
+            date: remote.date,
+            distance: Number(remote.distance) || 0,
+            sessionType: remote.session_type || 'Regenerativo',
+            note: remote.note || ''
+          });
+        }
+      }
+
+      // 3. Upload missing to cloud
+      if (toUpload.length > 0) {
+        const { error: uploadError } = await client
+          .from('training_plans')
+          .upsert(toUpload);
+
+        if (uploadError) throw uploadError;
+      }
+
+      localStorage.setItem('fitanalytics_training_plans', JSON.stringify(merged));
+      return merged;
+    } catch (e) {
+      console.error("Supabase training plans bi-directional sync failed:", e);
+      return localPlans;
+    }
+  };
+
+  const syncReadinessWithSupabase = async (client, localReadiness, activeUser) => {
+    if (!activeUser) return localReadiness;
+    try {
+      const { data: remoteData, error } = await client
+        .from('readiness_logs')
+        .select('*');
+
+      if (error) throw error;
+
+      const localMap = new Map(localReadiness.map(l => [l.date, l]));
+      const remoteMap = new Map((remoteData || []).map(l => [l.date, l]));
+
+      const merged = [];
+      const toUpload = [];
+
+      // 1. Process local readiness logs
+      for (const local of localReadiness) {
+        const remote = remoteMap.get(local.date);
+        if (!remote) {
+          toUpload.push({
+            date: local.date,
+            user_id: activeUser.id,
+            sleep: Number(local.sleep) || 4,
+            soreness: Number(local.soreness) || 2,
+            resting_hr: Number(local.restingHr) || 60,
+            hrv: local.hrv ? Number(local.hrv) : null,
+            notes: local.notes || ''
+          });
+        }
+        merged.push(local);
+      }
+
+      // 2. Process remote logs not in local
+      for (const remote of (remoteData || [])) {
+        if (!localMap.has(remote.date)) {
+          merged.push({
+            date: remote.date,
+            sleep: Number(remote.sleep) || 4,
+            soreness: Number(remote.soreness) || 2,
+            restingHr: Number(remote.resting_hr) || 60,
+            hrv: remote.hrv ? Number(remote.hrv) : null,
+            notes: remote.notes || ''
+          });
+        }
+      }
+
+      // 3. Upload missing to cloud
+      if (toUpload.length > 0) {
+        const { error: uploadError } = await client
+          .from('readiness_logs')
+          .upsert(toUpload);
+
+        if (uploadError) throw uploadError;
+      }
+
+      localStorage.setItem('fitanalytics_readiness_logs', JSON.stringify(merged));
+      return merged;
+    } catch (e) {
+      console.error("Supabase readiness logs bi-directional sync failed:", e);
+      return localReadiness;
+    }
+  };
+
   // --- AUTH handlers ---
   const handleLogin = async (email, password) => {
     const client = getSupabase();
@@ -576,6 +865,15 @@ export default function App() {
 
         const mergedProfile = await syncProfileWithSupabase(client, profile, s.user);
         setProfile(mergedProfile);
+
+        const mergedShoes = await syncShoesWithSupabase(client, shoes, s.user);
+        setShoes(mergedShoes);
+
+        const mergedPlans = await syncPlansWithSupabase(client, plans, s.user);
+        setPlans(mergedPlans);
+
+        const mergedReadiness = await syncReadinessWithSupabase(client, readinessLogs, s.user);
+        setReadinessLogs(mergedReadiness);
       }
 
       return { success: true };
@@ -620,14 +918,15 @@ export default function App() {
           sessionName: newWorkout.sessionName,
           exercises: newWorkout.exercises,
           gpx_data: newWorkout.gpxData,
-          advanced_metrics: (newWorkout.maxSpeed || newWorkout.avgCadence || newWorkout.strideLength || newWorkout.elevationGain || newWorkout.splits) ? {
-            maxSpeed: newWorkout.maxSpeed,
-            avgCadence: newWorkout.avgCadence,
-            maxCadence: newWorkout.maxCadence,
-            strideLength: newWorkout.strideLength,
-            elevationGain: newWorkout.elevationGain,
-            elevationLoss: newWorkout.elevationLoss,
-            splits: newWorkout.splits
+          advanced_metrics: (newWorkout.maxSpeed || newWorkout.avgCadence || newWorkout.strideLength || newWorkout.elevationGain || newWorkout.splits || newWorkout.shoeId || newWorkout.advanced_metrics?.shoeId) ? {
+            maxSpeed: newWorkout.maxSpeed || newWorkout.advanced_metrics?.maxSpeed || null,
+            avgCadence: newWorkout.avgCadence || newWorkout.advanced_metrics?.avgCadence || null,
+            maxCadence: newWorkout.maxCadence || newWorkout.advanced_metrics?.maxCadence || null,
+            strideLength: newWorkout.strideLength || newWorkout.advanced_metrics?.strideLength || null,
+            elevationGain: newWorkout.elevationGain || newWorkout.advanced_metrics?.elevationGain || null,
+            elevationLoss: newWorkout.elevationLoss || newWorkout.advanced_metrics?.elevationLoss || null,
+            splits: newWorkout.splits || newWorkout.advanced_metrics?.splits || null,
+            shoeId: newWorkout.shoeId || newWorkout.advanced_metrics?.shoeId || null
           } : null,
           user_id: user.id
         };
@@ -679,14 +978,15 @@ export default function App() {
           sessionName: updatedWorkout.sessionName,
           exercises: updatedWorkout.exercises,
           gpx_data: updatedWorkout.gpxData,
-          advanced_metrics: (updatedWorkout.maxSpeed || updatedWorkout.avgCadence || updatedWorkout.strideLength || updatedWorkout.elevationGain || updatedWorkout.splits) ? {
-            maxSpeed: updatedWorkout.maxSpeed,
-            avgCadence: updatedWorkout.avgCadence,
-            maxCadence: updatedWorkout.maxCadence,
-            strideLength: updatedWorkout.strideLength,
-            elevationGain: updatedWorkout.elevationGain,
-            elevationLoss: updatedWorkout.elevationLoss,
-            splits: updatedWorkout.splits
+          advanced_metrics: (updatedWorkout.maxSpeed || updatedWorkout.avgCadence || updatedWorkout.strideLength || updatedWorkout.elevationGain || updatedWorkout.splits || updatedWorkout.shoeId || updatedWorkout.advanced_metrics?.shoeId) ? {
+            maxSpeed: updatedWorkout.maxSpeed || updatedWorkout.advanced_metrics?.maxSpeed || null,
+            avgCadence: updatedWorkout.avgCadence || updatedWorkout.advanced_metrics?.avgCadence || null,
+            maxCadence: updatedWorkout.maxCadence || updatedWorkout.advanced_metrics?.maxCadence || null,
+            strideLength: updatedWorkout.strideLength || updatedWorkout.advanced_metrics?.strideLength || null,
+            elevationGain: updatedWorkout.elevationGain || updatedWorkout.advanced_metrics?.elevationGain || null,
+            elevationLoss: updatedWorkout.elevationLoss || updatedWorkout.advanced_metrics?.elevationLoss || null,
+            splits: updatedWorkout.splits || updatedWorkout.advanced_metrics?.splits || null,
+            shoeId: updatedWorkout.shoeId || updatedWorkout.advanced_metrics?.shoeId || null
           } : null,
           user_id: user.id
         };
@@ -735,6 +1035,107 @@ export default function App() {
         }
       } catch (e) {
         console.error("Supabase nutrition update error:", e);
+      }
+    }
+  };
+
+  const handleUpdateShoes = async (updatedShoes) => {
+    setShoes(updatedShoes);
+    localStorage.setItem('fitanalytics_shoes', JSON.stringify(updatedShoes));
+
+    const client = getSupabase();
+    if (client && user) {
+      try {
+        const updatedIds = new Set(updatedShoes.map(s => s.id));
+        const deletedShoes = shoes.filter(s => !updatedIds.has(s.id));
+
+        for (const del of deletedShoes) {
+          await client.from('shoes').delete().eq('id', del.id);
+        }
+
+        if (updatedShoes.length > 0) {
+          const { error } = await client
+            .from('shoes')
+            .upsert(updatedShoes.map(s => ({
+              id: s.id,
+              user_id: user.id,
+              brand: s.brand,
+              model: s.model,
+              initial_km: Number(s.initialKm) || 0,
+              max_km: Number(s.maxKm) || 800,
+              buy_date: s.buyDate,
+              is_active: s.isActive !== false
+            })));
+          if (error) throw error;
+        }
+      } catch (e) {
+        console.error("Supabase shoes update error:", e);
+      }
+    }
+  };
+
+  const handleUpdatePlans = async (updatedPlans) => {
+    setPlans(updatedPlans);
+    localStorage.setItem('fitanalytics_training_plans', JSON.stringify(updatedPlans));
+
+    const client = getSupabase();
+    if (client && user) {
+      try {
+        const updatedDates = new Set(updatedPlans.map(p => p.date));
+        const deletedPlans = plans.filter(p => !updatedDates.has(p.date));
+
+        for (const del of deletedPlans) {
+          await client.from('training_plans').delete().eq('date', del.date);
+        }
+
+        if (updatedPlans.length > 0) {
+          const { error } = await client
+            .from('training_plans')
+            .upsert(updatedPlans.map(p => ({
+              date: p.date,
+              user_id: user.id,
+              distance: Number(p.distance) || 0,
+              session_type: p.sessionType || 'Regenerativo',
+              note: p.note || ''
+            })));
+          if (error) throw error;
+        }
+      } catch (e) {
+        console.error("Supabase plans update error:", e);
+      }
+    }
+  };
+
+  const handleUpdateReadinessLogs = async (updatedReadiness) => {
+    setReadinessLogs(updatedReadiness);
+    localStorage.setItem('fitanalytics_readiness_logs', JSON.stringify(updatedReadiness));
+
+    const client = getSupabase();
+    if (client && user) {
+      try {
+        const updatedDates = new Set(updatedReadiness.map(l => l.date));
+        const deletedLogs = readinessLogs.filter(l => !updatedDates.has(l.date));
+
+        for (const del of deletedLogs) {
+          await client.from('readiness_logs').delete().eq('date', del.date);
+        }
+
+        if (updatedReadiness.length > 0) {
+          const { error } = await client
+            .from('readiness_logs')
+            .upsert(updatedReadiness.map(l => ({
+              date: l.date,
+              user_id: user.id,
+              sleep: Number(l.sleep) || 4,
+              soreness: Number(l.soreness) || 2,
+              resting_hr: Number(l.restingHr) || 60,
+              hrv: l.hrv ? Number(l.hrv) : null,
+              notes: l.notes || ''
+            })));
+          if (error) throw error;
+        }
+      } catch (e) {
+        console.error("Supabase readiness logs update error:", e);
       }
     }
   };
@@ -808,14 +1209,15 @@ export default function App() {
               sessionName: w.sessionName,
               exercises: w.exercises,
               gpx_data: w.gpxData,
-              advanced_metrics: (w.maxSpeed || w.avgCadence || w.strideLength || w.elevationGain || w.splits) ? {
-                maxSpeed: w.maxSpeed,
-                avgCadence: w.avgCadence,
-                maxCadence: w.maxCadence,
-                strideLength: w.strideLength,
-                elevationGain: w.elevationGain,
-                elevationLoss: w.elevationLoss,
-                splits: w.splits
+              advanced_metrics: (w.maxSpeed || w.avgCadence || w.strideLength || w.elevationGain || w.splits || w.shoeId || w.advanced_metrics?.shoeId) ? {
+                maxSpeed: w.maxSpeed || w.advanced_metrics?.maxSpeed || null,
+                avgCadence: w.avgCadence || w.advanced_metrics?.avgCadence || null,
+                maxCadence: w.maxCadence || w.advanced_metrics?.maxCadence || null,
+                strideLength: w.strideLength || w.advanced_metrics?.strideLength || null,
+                elevationGain: w.elevationGain || w.advanced_metrics?.elevationGain || null,
+                elevationLoss: w.elevationLoss || w.advanced_metrics?.elevationLoss || null,
+                splits: w.splits || w.advanced_metrics?.splits || null,
+                shoeId: w.shoeId || w.advanced_metrics?.shoeId || null
               } : null,
               user_id: user.id
             })));
@@ -900,6 +1302,19 @@ export default function App() {
             nutritionLogs={nutritionLogs} 
             onUpdateNutrition={handleUpdateNutrition} 
             profile={profile} 
+          />
+        );
+      case 'performance':
+        return (
+          <PerformanceHub 
+            workouts={workouts} 
+            profile={profile} 
+            shoes={shoes} 
+            onUpdateShoes={handleUpdateShoes} 
+            plans={plans} 
+            onUpdatePlans={handleUpdatePlans} 
+            readinessLogs={readinessLogs} 
+            onUpdateReadinessLogs={handleUpdateReadinessLogs} 
           />
         );
       case 'predictors':
@@ -1047,6 +1462,7 @@ export default function App() {
           }} 
           preset={addWorkoutPreset}
           workouts={workouts}
+          shoes={shoes}
         />
       )}
 

@@ -1055,7 +1055,7 @@ export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout
           align-items: center;
           gap: 1rem;
           flex: 1;
-          min-width: 280px;
+          min-width: 0;
         }
 
         .activity-avatar-large {
@@ -1116,7 +1116,6 @@ export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout
           flex-shrink: 0;
           justify-content: flex-end;
           align-items: center;
-          min-width: 320px;
         }
 
         @media (max-width: 768px) {
@@ -1772,7 +1771,63 @@ export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout
           pointer-events: none;
         }
 
+        /* ===== Mobile Overrides: WorkoutsLog ===== */
         @media (max-width: 768px) {
+          .log-container {
+            gap: 1rem;
+          }
+
+          /* Full-width cards */
+          .workout-row-card {
+            padding: 1rem;
+          }
+
+          /* Stack identity + metrics vertically */
+          .card-main-row {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 0.75rem;
+          }
+
+          .card-identity {
+            width: 100%;
+          }
+
+          .card-major-metrics {
+            width: 100%;
+            justify-content: flex-start;
+            gap: 1rem;
+            flex-wrap: wrap;
+            border-top: 1px solid var(--border-light);
+            padding-top: 0.75rem;
+          }
+
+          /* Move action buttons to same row as identity */
+          .card-actions {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+          }
+
+          .workout-row-card {
+            position: relative;
+          }
+
+          /* Slightly smaller titles on mobile */
+          .workout-row-title {
+            font-size: 0.95rem;
+          }
+
+          /* Running expanded: scroll gauge horizontally */
+          .gauge-panel svg {
+            max-width: 100%;
+          }
+
+          .running-notes-row p {
+            min-width: 0;
+          }
+
+          /* Bulk actions drawer */
           .bulk-actions-drawer {
             padding: 1rem;
           }
@@ -1790,6 +1845,21 @@ export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout
           .bulk-select-wrapper, .btn-bulk-action {
             flex: 1;
             justify-content: center;
+          }
+        }
+
+        @media (max-width: 480px) {
+          .metric-box-value {
+            font-size: 0.95rem;
+          }
+
+          .card-major-metrics {
+            gap: 0.75rem;
+          }
+
+          .activity-avatar-large {
+            width: 40px;
+            height: 40px;
           }
         }
       `}</style>

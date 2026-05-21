@@ -1046,6 +1046,17 @@ export default function NutritionView({ nutritionLogs, onUpdateNutrition, profil
           border-color: rgba(255, 255, 255, 0.08);
         }
 
+        .row-info-block {
+          flex: 1;
+          min-width: 0;
+        }
+
+        .meal-name {
+          word-break: break-word;
+          overflow-wrap: break-word;
+          white-space: normal;
+        }
+
         .row-macros-badges {
           display: flex;
           gap: 0.35rem;
@@ -1106,11 +1117,22 @@ export default function NutritionView({ nutritionLogs, onUpdateNutrition, profil
 
           .goal-mode-bar {
             gap: 0.4rem;
+            overflow-x: auto;
+            flex-wrap: nowrap;
+            padding-bottom: 0.4rem;
+            -webkit-overflow-scrolling: touch;
+            width: 100%;
+            scrollbar-width: none; /* Firefox */
+          }
+          
+          .goal-mode-bar::-webkit-scrollbar {
+            display: none; /* Chrome, Safari, Opera */
           }
 
           .goal-chip {
             padding: 0.45rem 0.75rem;
             font-size: 0.78rem;
+            flex-shrink: 0;
           }
 
           .goal-chip span {

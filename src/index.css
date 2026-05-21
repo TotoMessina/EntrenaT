@@ -885,6 +885,8 @@ body {
   z-index: 10003;
   transition: bottom 0.35s cubic-bezier(0.16, 1, 0.3, 1);
   box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.6);
+  max-height: 85vh;
+  overflow-y: auto;
 }
 
 .mobile-more-sheet.open {

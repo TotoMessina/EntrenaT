@@ -40,7 +40,7 @@ const getRpeDescription = (rpe) => {
   return '';
 };
 
-export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workouts }) {
+export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workouts, shoes = [] }) {
   const [workoutType, setWorkoutType] = useState('running'); // running, gym
   
   // Common states
@@ -75,6 +75,25 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
   const [splits, setSplits] = useState([]); // [{ km: 1, time: '05:30' }]
   const [showAdvancedMetrics, setShowAdvancedMetrics] = useState(false);
 
+  // New Running and Splits states
+  const [shoeId, setShoeId] = useState('');
+  const [splitsType, setSplitsType] = useState('auto'); // 'auto' (Km-by-Km continuous) vs 'manual' (repetitions/intervals)
+  const [numSeries, setNumSeries] = useState(5);
+  const [distanceSeries, setDistanceSeries] = useState('400');
+  const [customDistanceSeries, setCustomDistanceSeries] = useState('600');
+
+  // Auto-initialize shoeId using the active shoe
+  useEffect(() => {
+    if (shoes && shoes.length > 0) {
+      const activeShoe = shoes.find(s => s.isActive);
+      if (activeShoe) {
+        setShoeId(activeShoe.id);
+      } else {
+        setShoeId(shoes[0].id);
+      }
+    }
+  }, [shoes]);
+
   // Auto-calculated pace/speed for UI
   const [calculatedPace, setCalculatedPace] = useState('--:--');
   const [calculatedSpeed, setCalculatedSpeed] = useState('--');
@@ -103,19 +122,111 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
   }, [distance, durationHH, durationMM, durationSS]);
 
   const handleAddSplit = () => {
-    setSplits([...splits, { km: splits.length + 1, time: '05:00' }]);
+    setSplits([...splits, { splitNumber: splits.length + 1, distance: 1000, time: '00:05:00' }]);
   };
   
   const handleRemoveSplit = (index) => {
     const newSplits = [...splits];
     newSplits.splice(index, 1);
-    // Re-index
-    setSplits(newSplits.map((s, i) => ({ ...s, km: i + 1 })));
+    setSplits(newSplits.map((s, i) => ({ ...s, splitNumber: i + 1 })));
   };
 
-  const handleSplitChange = (index, val) => {
+  const getDisplayTime = (timeStr) => {
+    if (!timeStr) return '';
+    if (timeStr.startsWith('00:')) {
+      return timeStr.substring(3);
+    }
+    return timeStr;
+  };
+
+  const handleSplitTimeChange = (index, val) => {
     const newSplits = [...splits];
-    newSplits[index].time = val;
+    const parts = val.split(':');
+    let formatted = val;
+    if (parts.length === 2) {
+      formatted = `00:${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}`;
+    } else if (parts.length === 3) {
+      formatted = `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}:${parts[2].padStart(2, '0')}`;
+    }
+    newSplits[index].time = formatted;
+    setSplits(newSplits);
+  };
+
+  const generateAutoSplits = () => {
+    const distVal = parseFloat(distance);
+    if (!distVal || distVal <= 0) {
+      alert("Por favor ingresa primero la distancia total del entrenamiento.");
+      return;
+    }
+
+    const hrs = parseInt(durationHH) || 0;
+    const mins = parseInt(durationMM) || 0;
+    const secs = parseInt(durationSS) || 0;
+    const totalSecs = (hrs * 3600) + (mins * 60) + secs;
+
+    const avgPaceSecs = totalSecs > 0 ? totalSecs / distVal : 300;
+
+    const newSplits = [];
+    let remainingDist = distVal;
+    let index = 1;
+
+    while (remainingDist > 0) {
+      const splitDist = remainingDist >= 1.0 ? 1.0 : remainingDist;
+      const splitDistMeters = Math.round(splitDist * 1000);
+      const splitSecs = Math.round(avgPaceSecs * splitDist);
+
+      const splitHrs = Math.floor(splitSecs / 3600);
+      const splitMins = Math.floor((splitSecs % 3600) / 60);
+      const splitS = Math.round(splitSecs % 60);
+
+      const timeStr = `${String(splitHrs).padStart(2, '0')}:${String(splitMins).padStart(2, '0')}:${String(splitS).padStart(2, '0')}`;
+
+      newSplits.push({
+        splitNumber: index,
+        distance: splitDistMeters,
+        time: timeStr
+      });
+
+      remainingDist -= splitDist;
+      index++;
+    }
+
+    setSplits(newSplits);
+  };
+
+  const generateIntervalSplits = () => {
+    const count = parseInt(numSeries) || 5;
+    let distMeters = 400;
+    if (distanceSeries === 'custom') {
+      distMeters = parseInt(customDistanceSeries) || 400;
+    } else {
+      distMeters = parseInt(distanceSeries) || 400;
+    }
+
+    const distVal = parseFloat(distance);
+    const hrs = parseInt(durationHH) || 0;
+    const mins = parseInt(durationMM) || 0;
+    const secs = parseInt(durationSS) || 0;
+    const totalSecs = (hrs * 3600) + (mins * 60) + secs;
+
+    const avgPaceSecs = totalSecs > 0 && distVal > 0 ? totalSecs / distVal : 300;
+    const splitSecs = Math.round((avgPaceSecs / 1000) * distMeters);
+
+    const newSplits = [];
+    for (let i = 1; i <= count; i++) {
+      const splitHrs = Math.floor(splitSecs / 3600);
+      const splitMins = Math.floor((splitSecs % 3600) / 60);
+      const splitS = Math.round(splitSecs % 60);
+
+      const timeStr = `${String(splitHrs).padStart(2, '0')}:${String(splitMins).padStart(2, '0')}:${String(splitS).padStart(2, '0')}`;
+
+      newSplits.push({
+        splitNumber: i,
+        distance: distMeters,
+        time: timeStr
+      });
+    }
+
     setSplits(newSplits);
   };
 
@@ -651,7 +762,8 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
         strideLength: strideLength ? parseFloat(strideLength) : null,
         elevationGain: elevationGain ? parseInt(elevationGain) : null,
         elevationLoss: elevationLoss ? parseInt(elevationLoss) : null,
-        splits: splits.length > 0 ? splits : null
+        splits: splits.length > 0 ? splits : null,
+        shoeId: shoeId || null
       };
       
       onSaveWorkout(newWorkout);
@@ -788,6 +900,55 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
                 </button>
               </div>
 
+              {/* SELECTOR DE ZAPATILLA */}
+              <div className="form-group mb-4">
+                <label className="form-label flex-center" style={{ gap: '6px' }}>
+                  👟 Calzado Utilizado
+                </label>
+                <select
+                  value={shoeId}
+                  onChange={(e) => setShoeId(e.target.value)}
+                  className="form-input"
+                  style={{ borderColor: shoeId ? 'var(--color-running)' : 'rgba(255,255,255,0.1)', cursor: 'pointer' }}
+                >
+                  <option value="">-- Sin Calzado Registrado / Descalzo --</option>
+                  {shoes.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.brand} {s.model} {s.isActive ? '(Activo)' : '(Archivado)'}
+                    </option>
+                  ))}
+                </select>
+                
+                {/* Wear Safety Warning */}
+                {(() => {
+                  const selectedShoe = shoes.find(s => s.id === shoeId);
+                  if (selectedShoe) {
+                    const runningWorkouts = workouts.filter(w => {
+                      if (w.type !== 'running') return false;
+                      return (w.advanced_metrics?.shoeId === selectedShoe.id) || (w.shoeId === selectedShoe.id);
+                    });
+                    const accumulatedDistance = runningWorkouts.reduce((sum, w) => sum + (Number(w.distance) || 0), 0);
+                    const totalKm = Number(selectedShoe.initialKm || 0) + accumulatedDistance;
+                    const progressPct = Math.min(100, (totalKm / Number(selectedShoe.maxKm || 800)) * 100);
+
+                    if (progressPct >= 85) {
+                      return (
+                        <div className="alert-wear mt-2" style={{ display: 'flex', gap: '0.5rem', padding: '0.65rem', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: '8px', fontSize: '0.75rem', color: '#f87171', lineHeight: '1.3' }}>
+                          <span>⚠️ <strong>Advertencia de Desgaste Crítico:</strong> Este calzado tiene {Math.round(totalKm * 10) / 10} km de uso ({Math.round(progressPct)}% de su límite). La suela ha perdido su capacidad óptima de amortiguación. Se sugiere reemplazarlo para prevenir lesiones.</span>
+                        </div>
+                      );
+                    } else if (progressPct >= 60) {
+                      return (
+                        <div className="alert-wear mt-2" style={{ display: 'flex', gap: '0.5rem', padding: '0.65rem', background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.25)', borderRadius: '8px', fontSize: '0.75rem', color: '#fbbf24', lineHeight: '1.3' }}>
+                          <span>👟 <strong>Desgaste Moderado:</strong> Este calzado tiene {Math.round(totalKm * 10) / 10} km de uso. Aún está en buen estado, pero empieza a acumular fatiga mecánica.</span>
+                        </div>
+                      );
+                    }
+                  }
+                  return null;
+                })()}
+              </div>
+
               {/* CALCULATED PACE AND SPEED BANNER */}
               <div className="mb-4 p-3 rounded-lg flex-between-row" style={{ background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
                 <div>
@@ -849,28 +1010,140 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
                       </div>
                     </div>
 
-                    {/* SPLITS TABLE */}
+                    {/* TWO-MODE SPLITS EDITOR */}
                     <div className="splits-container" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '1rem' }}>
-                      <label className="form-label-custom mb-2">Tiempos por Kilómetro (Splits)</label>
-                      {splits.map((split, index) => (
-                        <div key={index} className="flex-between-row mb-2" style={{ gap: '0.5rem' }}>
-                          <span className="text-secondary font-bold" style={{ width: '50px' }}>Km {split.km}</span>
-                          <input 
-                            type="text" 
-                            placeholder="MM:SS" 
-                            value={split.time}
-                            onChange={(e) => handleSplitChange(index, e.target.value)}
-                            className="form-input"
-                            style={{ padding: '0.3rem', flex: 1 }}
-                          />
-                          <button type="button" onClick={() => handleRemoveSplit(index)} className="btn" style={{ padding: '0.4rem', color: '#ef4444', background: 'rgba(239, 68, 68, 0.1)' }}>
-                            <Trash2 size={14} />
+                      <div className="flex-between-row mb-3" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
+                        <label className="form-label-custom font-bold text-xs" style={{ margin: 0 }}>Registro de Pasadas / Splits</label>
+                        
+                        {/* Tab mode switcher */}
+                        <div style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', padding: '2px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                          <button
+                            type="button"
+                            onClick={() => { setSplitsType('auto'); setSplits([]); }}
+                            className="px-2 py-1 text-xs rounded-md transition-all font-semibold"
+                            style={{
+                              background: splitsType === 'auto' ? 'var(--color-running)' : 'transparent',
+                              color: splitsType === 'auto' ? '#000' : 'var(--text-secondary)',
+                              border: 'none',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Km por Km
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setSplitsType('manual'); setSplits([]); }}
+                            className="px-2 py-1 text-xs rounded-md transition-all font-semibold"
+                            style={{
+                              background: splitsType === 'manual' ? 'var(--color-running)' : 'transparent',
+                              color: splitsType === 'manual' ? '#000' : 'var(--text-secondary)',
+                              border: 'none',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Series / Intervalos
                           </button>
                         </div>
-                      ))}
-                      <button type="button" onClick={handleAddSplit} className="btn btn-secondary w-full flex-center mt-2" style={{ padding: '0.4rem' }}>
-                        <Plus size={14} /> <span>Añadir Kilómetro</span>
-                      </button>
+                      </div>
+
+                      {splitsType === 'auto' ? (
+                        <div className="auto-splits-generator mb-3">
+                          <p className="text-xs text-muted mb-2">Genera splits automáticos de 1km (1000m) basados en la distancia y duración ingresadas.</p>
+                          <button
+                            type="button"
+                            onClick={generateAutoSplits}
+                            className="btn btn-secondary w-full py-1.5 flex-center text-xs animate-pulse"
+                            style={{ color: 'var(--color-running)', borderColor: 'rgba(16, 185, 129, 0.3)', gap: '6px' }}
+                          >
+                            🔄 Generar Splits Km-por-Km
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="manual-intervals-generator mb-4 p-3 rounded-lg" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                          <div className="grid grid-cols-2 gap-3 mb-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                            <div className="form-group-custom">
+                              <label className="form-label-custom text-xs">N° de Series (Repeticiones)</label>
+                              <input
+                                type="number"
+                                min="1"
+                                value={numSeries}
+                                onChange={(e) => setNumSeries(parseInt(e.target.value) || 1)}
+                                className="form-input"
+                                style={{ padding: '0.4rem' }}
+                              />
+                            </div>
+                            <div className="form-group-custom">
+                              <label className="form-label-custom text-xs">Distancia por Serie</label>
+                              <select
+                                value={distanceSeries}
+                                onChange={(e) => setDistanceSeries(e.target.value)}
+                                className="form-select"
+                                style={{ padding: '0.4rem' }}
+                              >
+                                <option value="200">200m (Sprint)</option>
+                                <option value="400">400m (Pista de atletismo)</option>
+                                <option value="800">800m (Medio Fondo)</option>
+                                <option value="1000">1000m (1 Km)</option>
+                                <option value="custom">Personalizado (m)</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          {distanceSeries === 'custom' && (
+                            <div className="form-group-custom mb-3">
+                              <label className="form-label-custom text-xs">Distancia Personalizada (Metros)</label>
+                              <input
+                                type="number"
+                                min="1"
+                                value={customDistanceSeries}
+                                onChange={(e) => setCustomDistanceSeries(parseInt(e.target.value) || 400)}
+                                className="form-input"
+                                style={{ padding: '0.4rem' }}
+                              />
+                            </div>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={generateIntervalSplits}
+                            className="btn btn-secondary w-full py-1.5 flex-center text-xs"
+                            style={{ color: 'var(--color-running)', borderColor: 'rgba(16, 185, 129, 0.3)', gap: '6px' }}
+                          >
+                            ⚡ Generar Series de Velocidad
+                          </button>
+                        </div>
+                      )}
+
+                      {/* RENDERING DYNAMIC INPUT SPLITS LIST */}
+                      {splits.length > 0 && (
+                        <div className="splits-fields-list mt-3" style={{ maxHeight: '250px', overflowY: 'auto', paddingRight: '4px' }}>
+                          <label className="form-label-custom text-xs mb-2 block" style={{ color: 'var(--color-running)', fontWeight: 'bold' }}>Tiempos de cada Split / Repetición (MM:SS)</label>
+                          {splits.map((split, index) => (
+                            <div key={index} className="flex-between-row mb-2 animate-fade-in" style={{ gap: '0.5rem', alignItems: 'center' }}>
+                              <span className="text-secondary font-bold text-xs" style={{ width: '80px', flexShrink: 0 }}>
+                                #{split.splitNumber} ({split.distance >= 1000 ? `${(split.distance / 1000).toFixed(1)}k` : `${split.distance}m`})
+                              </span>
+                              <input 
+                                type="text" 
+                                placeholder="MM:SS" 
+                                value={getDisplayTime(split.time)}
+                                onChange={(e) => handleSplitTimeChange(index, e.target.value)}
+                                className="form-input text-xs"
+                                style={{ padding: '0.35rem', flex: 1 }}
+                              />
+                              <button type="button" onClick={() => handleRemoveSplit(index)} className="btn" style={{ padding: '0.4rem', color: '#ef4444', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '6px' }}>
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          ))}
+                          
+                          {splitsType === 'auto' && (
+                            <button type="button" onClick={handleAddSplit} className="btn btn-secondary w-full flex-center mt-2 text-xs" style={{ padding: '0.4rem' }}>
+                              <Plus size={12} /> <span>Añadir Kilómetro</span>
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                   </div>

@@ -175,3 +175,64 @@ CREATE POLICY "Usuarios pueden insertar su propio perfil"
 
 CREATE POLICY "Usuarios pueden actualizar su propio perfil" 
   ON profiles FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+
+-- ==========================================
+-- 5. NUEVAS TABLAS DE RENDIMIENTO Y CONTROL (SHOE TRACKER, PLANNER, READINESS)
+-- ==========================================
+
+-- D. Tabla de Zapatillas (Shoe Tracker)
+CREATE TABLE IF NOT EXISTS shoes (
+  id TEXT NOT NULL,
+  user_id UUID REFERENCES auth.users(id) DEFAULT auth.uid() NOT NULL,
+  brand TEXT NOT NULL,
+  model TEXT NOT NULL,
+  initial_km NUMERIC DEFAULT 0 NOT NULL,
+  max_km INTEGER NOT NULL DEFAULT 800,
+  buy_date TEXT NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  PRIMARY KEY (id, user_id)
+);
+
+-- E. Tabla de Planes de Entrenamiento (Training Planner)
+CREATE TABLE IF NOT EXISTS training_plans (
+  date TEXT NOT NULL,
+  user_id UUID REFERENCES auth.users(id) DEFAULT auth.uid() NOT NULL,
+  distance NUMERIC DEFAULT 0 NOT NULL,
+  session_type TEXT NOT NULL,
+  note TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  PRIMARY KEY (date, user_id)
+);
+
+-- F. Tabla de Registro de Disposición (Readiness logs)
+CREATE TABLE IF NOT EXISTS readiness_logs (
+  date TEXT NOT NULL,
+  user_id UUID REFERENCES auth.users(id) DEFAULT auth.uid() NOT NULL,
+  sleep INTEGER NOT NULL,
+  soreness INTEGER NOT NULL,
+  resting_hr INTEGER NOT NULL,
+  hrv INTEGER,
+  notes TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  PRIMARY KEY (date, user_id)
+);
+
+-- Habilitar Row Level Security (RLS)
+ALTER TABLE shoes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE training_plans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE readiness_logs ENABLE ROW LEVEL SECURITY;
+
+-- Políticas de aislamiento multi-inquilino
+DROP POLICY IF EXISTS "Usuarios pueden gestionar sus propias zapatillas" ON shoes;
+CREATE POLICY "Usuarios pueden gestionar sus propias zapatillas" ON shoes
+  FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Usuarios pueden gestionar sus propios planes" ON training_plans;
+CREATE POLICY "Usuarios pueden gestionar sus propios planes" ON training_plans
+  FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Usuarios pueden gestionar su propio readiness" ON readiness_logs;
+CREATE POLICY "Usuarios pueden gestionar su propio readiness" ON readiness_logs
+  FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);

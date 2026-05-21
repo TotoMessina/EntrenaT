@@ -15,7 +15,8 @@ import {
   Printer,
   Flame,
   MoreHorizontal,
-  X
+  X,
+  Zap
 } from 'lucide-react';
 import { calculateAchievements, calculateActiveStreak } from '../utils/achievements';
 
@@ -31,9 +32,10 @@ export default function Sidebar({ activeTab, setActiveTab, onAddWorkoutClick, th
   }, 0);
   const streak = calculateActiveStreak(workouts);
 
-  // Desktop: all 7 items
+  // Desktop: all 8 items
   const menuItems = [
     { id: 'overview', label: 'Resumen', icon: Activity },
+    { id: 'performance', label: 'Rendimiento', icon: Zap },
     { id: 'workouts', label: 'Historial', icon: Dumbbell },
     { id: 'analytics', label: 'Estadísticas', icon: TrendingUp },
     { id: 'nutrition', label: 'Nutrición', icon: Apple },
@@ -51,6 +53,7 @@ export default function Sidebar({ activeTab, setActiveTab, onAddWorkoutClick, th
 
   // Items in the sliding bottom-sheet drawer
   const moreItems = [
+    { id: 'performance', label: 'Rendimiento', icon: Zap },
     { id: 'analytics', label: 'Estadísticas', icon: TrendingUp },
     { id: 'predictors', label: 'Calculadoras', icon: Sparkles },
     { id: 'achievements', label: 'Logros', icon: Award },
