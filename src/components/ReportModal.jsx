@@ -18,7 +18,7 @@ import {
   Copy,
   Bot
 } from 'lucide-react';
-import { secondsToTimeString, formatPace, timeStringToSeconds } from '../utils/calculators';
+import { secondsToTimeString, formatPace, timeStringToSeconds, calculateDecayedHistoricalRunningMetrics, getRunningExponentDetails, getBestEffortFromSplits } from '../utils/calculators';
 import { calculateAchievements } from '../utils/achievements';
 
 export default function ReportModal({ workouts, profile, onClose }) {
@@ -178,18 +178,103 @@ export default function ReportModal({ workouts, profile, onClose }) {
   const [copiedForAI, setCopiedForAI] = useState(false);
 
   const generateMarkdownReport = () => {
-    let md = `# Reporte Analítico de Rendimiento\n\n`;
+    // Calcular métricas de telemetría avanzadas e historial
+    const decayedMetrics = calculateDecayedHistoricalRunningMetrics(workouts, profile);
+    const exponentDetails = getRunningExponentDetails(profile, workouts);
+
+    // Calcular récords de honor (incluyendo splits contiguos)
+    const targets = [
+      { label: 'Mejor 1K', distance: 1.0 },
+      { label: 'Mejor 5K', distance: 5.0 },
+      { label: 'Mejor 10K', distance: 10.0 },
+      { label: 'Medio Maratón (21.1k)', distance: 21.097 },
+      { label: 'Maratón (42.2k)', distance: 42.195 }
+    ];
+
+    const runsHistory = workouts.filter(w => w.type === 'running' && w.distance > 0 && w.duration);
+    const calculatedPRs = targets.map(target => {
+      let bestEstimatedSeconds = Infinity;
+      let matchingWorkout = null;
+      let isFromSplits = false;
+
+      runsHistory.forEach(run => {
+        const dist = Number(run.distance);
+        const workoutSplits = run.splits || run.advanced_metrics?.splits;
+
+        // 1. Escanear parciales contiguos (splits)
+        if (Array.isArray(workoutSplits) && workoutSplits.length > 0) {
+          const splitTimeSecs = getBestEffortFromSplits(workoutSplits, target.distance);
+          if (splitTimeSecs !== null && splitTimeSecs < bestEstimatedSeconds) {
+            bestEstimatedSeconds = splitTimeSecs;
+            matchingWorkout = {
+              ...run,
+              estimatedTime: splitTimeSecs,
+              avgPace: splitTimeSecs / target.distance
+            };
+            isFromSplits = true;
+          }
+        }
+
+        // 2. Comportamiento convencional
+        if (dist >= target.distance) {
+          const totalSecs = timeStringToSeconds(run.duration);
+          if (totalSecs > 0) {
+            const avgPace = totalSecs / dist;
+            const estimatedTime = target.distance * avgPace;
+
+            if (estimatedTime < bestEstimatedSeconds) {
+              bestEstimatedSeconds = estimatedTime;
+              matchingWorkout = {
+                ...run,
+                estimatedTime,
+                avgPace
+              };
+              isFromSplits = false;
+            }
+          }
+        }
+      });
+
+      return {
+        ...target,
+        bestTime: bestEstimatedSeconds === Infinity ? null : secondsToTimeString(bestEstimatedSeconds),
+        bestPace: bestEstimatedSeconds === Infinity ? null : formatPace(matchingWorkout.avgPace),
+        workout: matchingWorkout,
+        isFromSplits: bestEstimatedSeconds !== Infinity ? isFromSplits : false
+      };
+    });
+
+    let md = `# Reporte Analítico de Rendimiento Atleta\n\n`;
     md += `**Fecha de generación:** ${new Date().toLocaleDateString('es-ES')}\n`;
     md += `**Período evaluado:** ${getPeriodLabel()} (${getDateRangeLabel()})\n\n`;
     
     md += `## 1. Perfil del Atleta\n`;
-    md += `- Género: ${gender}\n`;
-    md += `- Edad: ${age} años\n`;
-    md += `- Peso Corporal: ${weight} kg\n`;
-    md += `- Estatura: ${height} cm\n`;
-    md += `- Frecuencia Cardíaca en Reposo: ${restingHR} bpm\n\n`;
+    md += `- **Género:** ${gender}\n`;
+    md += `- **Edad:** ${age} años\n`;
+    md += `- **Peso Corporal:** ${weight} kg\n`;
+    md += `- **Estatura:** ${height} cm\n`;
+    md += `- **Frecuencia Cardíaca en Reposo:** ${restingHR} bpm\n\n`;
 
-    md += `## 2. Resumen Macrociclo (Global)\n`;
+    md += `## 2. Telemetría Cardiovascular y Fisiológica Avanzada\n`;
+    md += `- **VDOT Mecánico Ponderado (Daniels):** ${decayedMetrics.weightedVdot} ml/kg/min\n`;
+    md += `- **VO2máx Cardíaco Ponderado (ACSM):** ${decayedMetrics.hasHRData ? `${decayedMetrics.weightedVo2MaxHR} ml/kg/min` : 'Sin datos cardíacos suficientes'}\n`;
+    md += `- **Exponente de Fatiga Calibrado (Riegel):** ${exponentDetails.finalExponent} (${exponentDetails.hasCalculatedFromRecords ? 'Calibrado de récords reales' : 'Estimado por biometría/volumen'})\n`;
+    md += `- **Diagnóstico y Plan Recomendado:** ${exponentDetails.recommendation}\n\n`;
+
+    md += `## 3. Cuadro de Honor y Récords Personales (Extracción Contigua Laps/Splits)\n`;
+    calculatedPRs.forEach(pr => {
+      if (pr.bestTime) {
+        const originType = pr.isFromSplits 
+          ? `⚡ Parcial óptimo de corrida de ${pr.workout.distance} km` 
+          : `Actividad completa de ${pr.workout.distance} km`;
+        md += `- **${pr.label}:** ${pr.bestTime} (Ritmo: ${pr.bestPace}) | Origen: ${originType} el ${new Date(pr.workout.date + 'T00:00:00').toLocaleDateString('es-ES')}\n`;
+      } else {
+        md += `- **${pr.label}:** Pendiente de registrar (Requiere correr ${pr.distance} km o más)\n`;
+      }
+    });
+    md += `\n`;
+
+    md += `## 4. Resumen Macrociclo (Global del Periodo)\n`;
     md += `- Sesiones de Running Totales: ${runningCount}\n`;
     md += `- Distancia Acumulada: ${totalKm.toFixed(2)} km\n`;
     md += `- Ritmo Promedio Ponderado: ${formatPace(avgPaceSecs)} min/km\n`;
@@ -198,13 +283,13 @@ export default function ReportModal({ workouts, profile, onClose }) {
       md += `- Volumen de Carga Total: ${totalVol} kg\n`;
     }
     
-    md += `\n## 3. Récords Biomecánicos (Fuerza Máxima - 1RM)\n`;
+    md += `\n## 5. Récords Biomecánicos (Fuerza Máxima - 1RM)\n`;
     if (bestBench) md += `- Bench Press: ${Math.round(bestBench.oneRepMax)} kg (Con base en: ${bestBench.weight}kg x ${bestBench.reps})\n`;
     if (bestSquat) md += `- Squat: ${Math.round(bestSquat.oneRepMax)} kg (Con base en: ${bestSquat.weight}kg x ${bestSquat.reps})\n`;
     if (bestDeadlift) md += `- Deadlift: ${Math.round(bestDeadlift.oneRepMax)} kg (Con base en: ${bestDeadlift.weight}kg x ${bestDeadlift.reps})\n`;
     if (!bestBench && !bestSquat && !bestDeadlift) md += `- Sin registros concluyentes en este periodo.\n`;
 
-    md += `\n## 4. Historial Detallado de Sesiones\n`;
+    md += `\n## 6. Historial Detallado de Sesiones\n`;
     filtered.forEach((w, i) => {
       md += `### [${w.date}] Sesión ${i+1}: ${w.type === 'running' ? 'Running' : 'Fuerza'}\n`;
       if (w.type === 'running') {
@@ -216,7 +301,7 @@ export default function ReportModal({ workouts, profile, onClose }) {
         if (w.avgCadence) md += `- Cadencia Promedio: ${w.avgCadence} spm\n`;
         if (w.splits && w.splits.length > 0) {
           md += `- Splits Registrados:\n`;
-          w.splits.forEach(s => md += `  - Km ${s.km}: ${s.time}\n`);
+          w.splits.forEach(s => md += `  - Km ${s.splitNumber || s.km}: ${s.time} (Distancia: ${s.distance ? s.distance + 'm' : '1000m'})\n`);
         }
       } else {
         md += `- Enfoque Muscular: ${w.muscleGroup || 'Full Body'}\n`;
