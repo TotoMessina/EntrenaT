@@ -9,7 +9,8 @@ import {
   Heart, 
   Activity,
   Brain,
-  Cpu
+  Cpu,
+  ShieldAlert
 } from 'lucide-react';
 import { 
   getRacePredictions, 
@@ -17,13 +18,16 @@ import {
   getRecommendedGymWeights, 
   calculate1RM,
   calculateHRZones,
-  getRunningExponentDetails
+  getRunningExponentDetails,
+  calculateDecayedHistoricalRunningMetrics,
+  solveVDOTTime
 } from '../utils/calculators';
 
 export default function Predictors({ workouts = [], profile = {} }) {
   const [activeCalculator, setActiveCalculator] = useState('running'); // running, gym, heartrate, ai_coach
 
   // --- RUNNING PREDICTOR STATE ---
+  const [runningMode, setRunningMode] = useState('history'); // history, manual
   const [refDistance, setRefDistance] = useState('5'); // km
   const [refHH, setRefHH] = useState('00');
   const [refMM, setRefMM] = useState('24');
@@ -46,6 +50,7 @@ export default function Predictors({ workouts = [], profile = {} }) {
   const [activeGymExercise, setActiveGymExercise] = useState('bench_press'); // bench_press, squat, deadlift
   const [hoveredGymPoint, setHoveredGymPoint] = useState(null);
   const [hoveredFitnessPoint, setHoveredFitnessPoint] = useState(null);
+  const [hoveredWorkout, setHoveredWorkout] = useState(null);
 
   // --- HEART RATE ZONE PREDICTOR STATE ---
   const [age, setAge] = useState(() => Number(localStorage.getItem('fitanalytics_age')) || 25);
@@ -59,42 +64,66 @@ export default function Predictors({ workouts = [], profile = {} }) {
     }
   }, [age]);
 
-  // Recalculate running predictions
-  const handleCalculateRunning = () => {
-    const d1 = parseFloat(refDistance);
-    const hh = parseInt(refHH) || 0;
-    const mm = parseInt(refMM) || 0;
-    const ss = parseInt(refSS) || 0;
-    const timeStr = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
-    
-    if (d1 > 0 && (hh > 0 || mm > 0 || ss > 0)) {
-      const preds = getRacePredictions(d1, timeStr, profile, workouts);
-      const zones = getRunningPaceZones(d1, timeStr, profile, workouts);
-      setRacePredictions(preds);
-      setPaceZones(zones);
+  const historicalMetrics = React.useMemo(() => {
+    return calculateDecayedHistoricalRunningMetrics(workouts, profile);
+  }, [workouts, profile]);
+
+  const activeRunningParams = React.useMemo(() => {
+    if (runningMode === 'history') {
+      const vdot = historicalMetrics.weightedVdot;
+      const eqSecs = solveVDOTTime(5.0, vdot);
+      const hh = Math.floor(eqSecs / 3600);
+      const mm = Math.floor((eqSecs % 3600) / 60);
+      const ss = Math.round(eqSecs % 60);
+      const timeStr = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+      return {
+        distance: 5.0,
+        timeStr,
+        vdot,
+        hh: String(hh).padStart(2, '0'),
+        mm: String(mm).padStart(2, '0'),
+        ss: String(ss).padStart(2, '0')
+      };
+    } else {
+      const d1 = parseFloat(refDistance) || 5;
+      const h = parseInt(refHH) || 0;
+      const m = parseInt(refMM) || 24;
+      const s = parseInt(refSS) || 30;
+      const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+      
+      // Calculate manual VDOT
+      const totalMinutes = h * 60 + m + s / 60;
+      const v = (d1 * 1000) / totalMinutes; // m/min
+      const vo2 = -4.60 + 0.182258 * v + 0.000104 * v * v;
+      const pct = 0.2989558 * Math.exp(-0.1932605 * totalMinutes) + 0.1894393 * Math.exp(-0.012778 * totalMinutes) + 0.8;
+      const vdot = vo2 / pct || 37.0;
+
+      return {
+        distance: d1,
+        timeStr,
+        vdot,
+        hh: String(h).padStart(2, '0'),
+        mm: String(m).padStart(2, '0'),
+        ss: String(s).padStart(2, '0')
+      };
     }
-  };
+  }, [runningMode, historicalMetrics, refDistance, refHH, refMM, refSS]);
+
+  // Recalculate running predictions
+  useEffect(() => {
+    const { distance, timeStr } = activeRunningParams;
+    const preds = getRacePredictions(distance, timeStr, profile, workouts);
+    const zones = getRunningPaceZones(distance, timeStr, profile, workouts);
+    setRacePredictions(preds);
+    setPaceZones(zones);
+  }, [activeRunningParams, profile, workouts]);
 
   // Compute physiological running exponent details
   const exponentDetails = React.useMemo(() => {
     return getRunningExponentDetails(profile, workouts);
   }, [profile, workouts]);
 
-  // Compute Jack Daniels VDOT reference from current performance inputs
-  const vdotReference = React.useMemo(() => {
-    const d1 = parseFloat(refDistance);
-    const hh = parseInt(refHH) || 0;
-    const mm = parseInt(refMM) || 0;
-    const ss = parseInt(refSS) || 0;
-    const seconds = hh * 3600 + mm * 60 + ss;
-    if (d1 <= 0 || seconds <= 0) return 0;
-    
-    const T1 = seconds / 60;
-    const v = (d1 * 1000) / T1;
-    const vo2 = -4.60 + 0.182258 * v + 0.000104 * v * v;
-    const pct = 0.2989558 * Math.exp(-0.1932605 * T1) + 0.1894393 * Math.exp(-0.012778 * T1) + 0.8;
-    return vo2 / pct;
-  }, [refDistance, refHH, refMM, refSS]);
+  const vdotReference = activeRunningParams.vdot;
 
   // Recalculate gym predictions
   const handleCalculateGym = () => {
@@ -107,11 +136,6 @@ export default function Predictors({ workouts = [], profile = {} }) {
       setGymRecommendations(recs);
     }
   };
-
-  // Run on mount and state changes
-  useEffect(() => {
-    handleCalculateRunning();
-  }, [refDistance, refHH, refMM, refSS, profile, workouts]);
 
   useEffect(() => {
     handleCalculateGym();
@@ -601,59 +625,283 @@ export default function Predictors({ workouts = [], profile = {} }) {
       {activeCalculator === 'running' && (
         <div className="grid-panels">
           {/* Inputs Section */}
-          <div className="glass-card panel-left">
+          <div className="glass-card panel-left" style={{ position: 'relative' }}>
             <h3 className="panel-title flex-center">
               <TrendingUp className="running-text" size={18} />
-              Rendimiento de Referencia
+              Motor Predictor Fisiológico
             </h3>
-            <p className="text-muted text-xs mb-4">Ingresa tu mejor marca reciente para proyectar tus capacidades aeróbicas mediante el modelo fisiológico Jack Daniels VDOT.</p>
+            <p className="text-muted text-xs mb-3">Elige entre la estimación dinámica basada en tu historial de la base de datos o simula marcas ingresándolas manualmente.</p>
             
-            <div className="form-group">
-              <label className="form-label">Distancia Recorrida (km)</label>
-              <input
-                type="number"
-                step="0.01"
-                value={refDistance}
-                onChange={(e) => setRefDistance(e.target.value)}
-                className="form-input"
-                placeholder="Ej: 5"
-              />
+            {/* TOGGLE MODO PREDICCIÓN */}
+            <div className="mode-toggle-container" style={{ display: 'flex', gap: '0.4rem', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', padding: '0.2rem', borderRadius: '10px', marginBottom: '1rem' }}>
+              <button
+                type="button"
+                onClick={() => setRunningMode('history')}
+                className={`mode-btn ${runningMode === 'history' ? 'active-history' : ''}`}
+                style={{
+                  flex: 1,
+                  padding: '0.45rem',
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontSize: '0.72rem',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  background: runningMode === 'history' ? 'rgba(16,185,129,0.12)' : 'transparent',
+                  border: `1px solid ${runningMode === 'history' ? 'rgba(16,185,129,0.2)' : 'transparent'}`,
+                  color: runningMode === 'history' ? '#10b981' : 'var(--text-muted)',
+                  transition: 'all 0.2s ease',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.35rem'
+                }}
+              >
+                <Sparkles size={12} />
+                Historial Sincronizado
+              </button>
+              <button
+                type="button"
+                onClick={() => setRunningMode('manual')}
+                className={`mode-btn ${runningMode === 'manual' ? 'active-manual' : ''}`}
+                style={{
+                  flex: 1,
+                  padding: '0.45rem',
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontSize: '0.72rem',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  background: runningMode === 'manual' ? 'rgba(139,92,246,0.12)' : 'transparent',
+                  border: `1px solid ${runningMode === 'manual' ? 'rgba(139,92,246,0.2)' : 'transparent'}`,
+                  color: runningMode === 'manual' ? 'var(--color-primary)' : 'var(--text-muted)',
+                  transition: 'all 0.2s ease',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.35rem'
+                }}
+              >
+                <TrendingUp size={12} />
+                Simulador Manual
+              </button>
             </div>
 
-            <div className="form-group">
-              <label className="form-label">Tiempo Logrado (HH : MM : SS)</label>
-              <div className="time-inputs-group">
-                <input
-                  type="number"
-                  min="0"
-                  max="23"
-                  placeholder="HH"
-                  value={refHH}
-                  onChange={(e) => setRefHH(e.target.value)}
-                  className="form-input text-center"
-                />
-                <span className="time-separator">:</span>
-                <input
-                  type="number"
-                  min="0"
-                  max="59"
-                  placeholder="MM"
-                  value={refMM}
-                  onChange={(e) => setRefMM(e.target.value)}
-                  className="form-input text-center"
-                />
-                <span className="time-separator">:</span>
-                <input
-                  type="number"
-                  min="0"
-                  max="59"
-                  placeholder="SS"
-                  value={refSS}
-                  onChange={(e) => setRefSS(e.target.value)}
-                  className="form-input text-center"
-                />
+            {runningMode === 'manual' ? (
+              <div className="animate-fade-in">
+                <div className="form-group">
+                  <label className="form-label">Distancia Recorrida (km)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={refDistance}
+                    onChange={(e) => setRefDistance(e.target.value)}
+                    className="form-input"
+                    placeholder="Ej: 5"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Tiempo Logrado (HH : MM : SS)</label>
+                  <div className="time-inputs-group">
+                    <input
+                      type="number"
+                      min="0"
+                      max="23"
+                      placeholder="HH"
+                      value={refHH}
+                      onChange={(e) => setRefHH(e.target.value)}
+                      className="form-input text-center"
+                    />
+                    <span className="time-separator">:</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="59"
+                      placeholder="MM"
+                      value={refMM}
+                      onChange={(e) => setRefMM(e.target.value)}
+                      className="form-input text-center"
+                    />
+                    <span className="time-separator">:</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="59"
+                      placeholder="SS"
+                      value={refSS}
+                      onChange={(e) => setRefSS(e.target.value)}
+                      className="form-input text-center"
+                    />
+                  </div>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="animate-fade-in">
+                {historicalMetrics.totalRuns > 0 ? (
+                  <div>
+                    {/* Tarjetas de Métricas Consolidadas */}
+                    <div className="dynamic-telemetry-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem', marginBottom: '0.85rem' }}>
+                      <div className="telemetry-stat-card glass-card" style={{ padding: '0.65rem', textAlign: 'center', background: 'rgba(139,92,246,0.03)', border: '1px solid rgba(139,92,246,0.12)', borderRadius: '10px' }}>
+                        <span style={{ fontSize: '0.6rem', textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.05em', display: 'block' }}>VDOT Mecánico</span>
+                        <h3 style={{ fontSize: '1.5rem', fontWeight: '800', margin: '0.1rem 0', color: '#fff', textShadow: '0 0 6px rgba(139,92,246,0.3)' }}>
+                          {historicalMetrics.weightedVdot.toFixed(1)}
+                        </h3>
+                        <span style={{ fontSize: '0.55rem', color: 'var(--text-muted)' }}>Ponderación de Ritmos</span>
+                      </div>
+                      
+                      <div className="telemetry-stat-card glass-card" style={{ padding: '0.65rem', textAlign: 'center', background: 'rgba(16,185,129,0.03)', border: '1px solid rgba(16,185,129,0.12)', borderRadius: '10px' }}>
+                        <span style={{ fontSize: '0.6rem', textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.05em', display: 'block' }}>VO2máx Cardíaco</span>
+                        <h3 style={{ fontSize: '1.5rem', fontWeight: '800', margin: '0.1rem 0', color: '#fff', textShadow: '0 0 6px rgba(16,185,129,0.3)' }}>
+                          {historicalMetrics.hasHRData ? historicalMetrics.weightedVo2MaxHR.toFixed(1) : 'N/A'}
+                        </h3>
+                        <span style={{ fontSize: '0.55rem', color: 'var(--text-muted)' }}>Eficiencia Cardíaca</span>
+                      </div>
+                    </div>
+
+                    {/* Explicación de Fisiología e Insight */}
+                    <div className="glass-card" style={{ padding: '0.75rem', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '10px', marginBottom: '0.85rem' }}>
+                      <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', marginBottom: '0.25rem' }}>
+                        <Brain size={14} style={{ color: 'var(--color-running)' }} />
+                        <span style={{ fontSize: '0.72rem', fontWeight: '700', color: '#fff' }}>Análisis Científico del Corredor</span>
+                      </div>
+                      <p style={{ margin: 0, fontSize: '0.65rem', color: 'var(--text-muted)', lineHeight: '1.35' }}>
+                        {(() => {
+                          const vdot = historicalMetrics.weightedVdot;
+                          const vo2 = historicalMetrics.weightedVo2MaxHR;
+                          if (!historicalMetrics.hasHRData) {
+                            return "Tu VDOT histórico ponderado está calibrado en base a tus ritmos y duraciones de carrera en la base de datos, ponderando los últimos 30 días exponencialmente más fuerte. ¡Añade pulso cardíaco a tus sesiones running para activar el análisis cardiovascular dual!";
+                          }
+                          const diff = vo2 - vdot;
+                          if (diff > 2.2) {
+                            return `¡Excelente Eficiencia Cardiovascular! Tu VO2máx cardíaco (${vo2.toFixed(1)}) es notablemente superior a tu VDOT mecánico (${vdot.toFixed(1)}). Esto indica una base aeróbica sobresaliente, pero tu sistema neuromuscular tiene margen de mejora para transferir esa energía en velocidad pura. Añadir series de Zona 5 aumentará tu potencia.`;
+                          } else if (diff < -2.2) {
+                            return `¡Excelente Economía de Carrera! Tu VDOT de paso (${vdot.toFixed(1)}) supera significativamente tu VO2máx cardíaco (${vo2.toFixed(1)}). Corres rápido con bajo gasto, pero tus pulsaciones son elevadas. Entrenar más trotes en Zona 2 expandirá tu volumen sistólico y bajará tus pulsaciones base.`;
+                          } else {
+                            return `¡Perfil Simétrico Equilibrado! Tu VO2máx cardiovascular (${vo2.toFixed(1)}) y tu VDOT mecánico (${vdot.toFixed(1)}) están en perfecta armonía. Tu corazón y tus piernas progresan en sincronía absoluta. Sigue con el bloque actual.`;
+                          }
+                        })()}
+                      </p>
+                    </div>
+
+                    {/* Gráfico SVG Burbujas Recencia */}
+                    <div style={{ marginBottom: '0.5rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                        <span style={{ fontSize: '0.68rem', fontWeight: '700', color: '#fff', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                          <Cpu size={12} style={{ color: 'var(--color-primary)' }} />
+                          Evolución VO2máx/VDOT (Últimos 12 Trotes)
+                        </span>
+                        <span style={{ fontSize: '0.55rem', color: 'var(--text-muted)' }}>Burbuja grande = Mayor peso</span>
+                      </div>
+                      
+                      {(() => {
+                        const chartRuns = (historicalMetrics.detailedRuns || []).slice(-12);
+                        if (chartRuns.length === 0) return null;
+                        
+                        const allYVals = chartRuns.flatMap(r => [r.vdot, r.vo2MaxHR].filter(v => v !== null));
+                        const minY = allYVals.length > 0 ? Math.min(...allYVals) - 1.5 : 30;
+                        const maxY = allYVals.length > 0 ? Math.max(...allYVals) + 1.5 : 50;
+                        const rangeY = maxY - minY || 5;
+
+                        const getX = (idx) => 25 + (idx * (265 / (chartRuns.length - 1 || 1)));
+                        const getY = (val) => 80 - ((val - minY) / rangeY) * 65;
+
+                        return (
+                          <div style={{ background: 'rgba(0,0,0,0.15)', padding: '0.5rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                            <svg viewBox="0 0 300 95" style={{ width: '100%', height: 'auto', display: 'block' }}>
+                              {/* Líneas horizontales de cuadrícula */}
+                              {[0.25, 0.5, 0.75].map((pct, i) => {
+                                const valY = minY + rangeY * pct;
+                                const yPos = getY(valY);
+                                return (
+                                  <g key={i}>
+                                    <line x1="20" y1={yPos} x2="295" y2={yPos} stroke="rgba(255,255,255,0.04)" strokeDasharray="3" />
+                                    <text x="5" y={yPos + 2.5} fill="rgba(255,255,255,0.25)" fontSize="5.5" fontFamily="monospace">{valY.toFixed(0)}</text>
+                                  </g>
+                                );
+                              })}
+
+                              {/* Dibujar Conexión / Tendencia */}
+                              {chartRuns.length > 1 && (
+                                <path
+                                  d={chartRuns.map((r, i) => `${i === 0 ? 'M' : 'L'} ${getX(i)} ${getY(r.vdot)}`).join(' ')}
+                                  fill="none"
+                                  stroke="rgba(139,92,246,0.15)"
+                                  strokeWidth="1.5"
+                                />
+                              )}
+
+                              {/* Dibujar Puntos/Burbujas */}
+                              {chartRuns.map((r, i) => {
+                                const xPos = getX(i);
+                                return (
+                                  <g key={r.id}>
+                                    {/* Grid vertical */}
+                                    <line x1={xPos} y1="10" x2={xPos} y2="82" stroke="rgba(255,255,255,0.02)" />
+                                    
+                                    {/* VDOT Mecánico (Violeta) */}
+                                    <circle
+                                      cx={xPos}
+                                      cy={getY(r.vdot)}
+                                      r={2.5 + 4.5 * r.weight}
+                                      fill="#8b5cf6"
+                                      opacity={0.3 + 0.7 * r.weight}
+                                      stroke={hoveredWorkout?.id === r.id && hoveredWorkout?.activeType === 'vdot' ? '#fff' : 'rgba(139,92,246,0.6)'}
+                                      strokeWidth={hoveredWorkout?.id === r.id && hoveredWorkout?.activeType === 'vdot' ? 1.5 : 0.5}
+                                      style={{ cursor: 'pointer' }}
+                                      onMouseEnter={() => setHoveredWorkout({ ...r, activeType: 'vdot', val: r.vdot })}
+                                      onMouseLeave={() => setHoveredWorkout(null)}
+                                    />
+
+                                    {/* VO2Max Cardiovascular (Esmeralda) */}
+                                    {r.vo2MaxHR !== null && (
+                                      <circle
+                                        cx={xPos}
+                                        cy={getY(r.vo2MaxHR)}
+                                        r={2.5 + 4.5 * r.weight}
+                                        fill="#10b981"
+                                        opacity={0.3 + 0.7 * r.weight}
+                                        stroke={hoveredWorkout?.id === r.id && hoveredWorkout?.activeType === 'vo2max' ? '#fff' : 'rgba(16,185,129,0.6)'}
+                                        strokeWidth={hoveredWorkout?.id === r.id && hoveredWorkout?.activeType === 'vo2max' ? 1.5 : 0.5}
+                                        style={{ cursor: 'pointer' }}
+                                        onMouseEnter={() => setHoveredWorkout({ ...r, activeType: 'vo2max', val: r.vo2MaxHR })}
+                                        onMouseLeave={() => setHoveredWorkout(null)}
+                                      />
+                                    )}
+                                  </g>
+                                );
+                              })}
+                            </svg>
+
+                            {/* Detalle interactivo en hover */}
+                            {hoveredWorkout ? (
+                              <div className="animate-fade-in" style={{ marginTop: '0.4rem', padding: '0.4rem', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '6px', fontSize: '0.62rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div>
+                                  <strong style={{ color: '#fff' }}>Sesión {hoveredWorkout.date}</strong>: {hoveredWorkout.distance}k @ {hoveredWorkout.pace}
+                                </div>
+                                <div style={{ color: hoveredWorkout.activeType === 'vdot' ? '#c084fc' : '#34d399', fontWeight: 'bold' }}>
+                                  {hoveredWorkout.activeType === 'vdot' ? 'VDOT' : 'VO2máx'}: {hoveredWorkout.val.toFixed(1)} (Peso: {(hoveredWorkout.weight * 100).toFixed(0)}%)
+                                </div>
+                              </div>
+                            ) : (
+                              <div style={{ marginTop: '0.4rem', fontSize: '0.55rem', color: 'var(--text-muted)', textAlign: 'center' }}>
+                                Pasa el cursor sobre los círculos para ver la telemetría del entrenamiento.
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="calculator-info-box text-center" style={{ padding: '1rem', border: '1px dashed rgba(255,255,255,0.1)' }}>
+                    <ShieldAlert size={18} style={{ color: 'var(--color-primary)', margin: '0 auto 0.5rem auto' }} />
+                    <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                      No se encontraron entrenamientos running sincronizados en tu cuenta de Supabase. Añade algunos en tu diario de carrera para activar el análisis predictivo ponderado automático.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* VDOT DIAL CARD */}
             {vdotReference > 0 && (
@@ -679,7 +927,7 @@ export default function Predictors({ workouts = [], profile = {} }) {
                     />
                   </svg>
                   <div className="vdot-dial-value-container">
-                    <span className="vdot-dial-label">VDOT</span>
+                    <span className="vdot-dial-label">{runningMode === 'history' ? 'VDOT Ponderado' : 'VDOT Manual'}</span>
                     <h2 className="vdot-dial-value font-extrabold">{vdotReference.toFixed(1)}</h2>
                     <span className="vdot-dial-unit">ml/kg/min</span>
                   </div>
@@ -731,15 +979,16 @@ export default function Predictors({ workouts = [], profile = {} }) {
             <div className="glass-card">
               <h3 className="panel-title flex-center mb-3">
                 <Award size={18} className="running-text" />
-                Predicciones de Tiempos Esperados (Jack Daniels VDOT)
+                Comparador Científico de Predicciones Running
               </h3>
+              <p className="text-muted text-xs mb-3">Comparativa lado a lado entre la <strong>Fórmula Riegel Personalizada</strong> (que usa tu exponente de fatiga real) y el modelo <strong>Jack Daniels VDOT</strong>.</p>
               
               <table className="calculator-table">
                 <thead>
                   <tr>
                     <th>Distancia Objetivo</th>
-                    <th className="right">Tiempo Proyectado</th>
-                    <th className="right">Ritmo de Carrera</th>
+                    <th className="right">Riegel (Tu Fatiga)</th>
+                    <th className="right">Daniels (VDOT)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -748,16 +997,21 @@ export default function Predictors({ workouts = [], profile = {} }) {
                       <td>
                         <strong>{pred.name}</strong> ({pred.distance}k)
                         {pred.vdotLossPct > 0 && (
-                          <span className="vdot-loss-badge" style={{ fontSize: '0.62rem', backgroundColor: 'rgba(239, 68, 68, 0.12)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.2)', padding: '1px 6px', borderRadius: '4px', marginLeft: '0.5rem', fontWeight: 600 }}>
-                            -{pred.vdotLossPct}% VDOT (Fatiga)
-                          </span>
+                          <div style={{ fontSize: '0.62rem', color: '#c084fc', marginTop: '2px', fontWeight: 600 }}>
+                            {pred.vdotLossPct}% pérdida VDOT
+                          </div>
                         )}
                       </td>
-                      <td className="right text-primary font-bold">{pred.time}</td>
+                      <td className="right">
+                        <div className="flex flex-col items-end" style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                          <span className="text-primary font-bold animate-pulse" style={{ color: 'var(--color-primary)', fontSize: '0.95rem' }}>{pred.riegelTime}</span>
+                          <span className="text-secondary text-xs" style={{ fontSize: '0.68rem', opacity: 0.85 }}>{pred.riegelPace}</span>
+                        </div>
+                      </td>
                       <td className="right text-secondary">
                         <div className="flex flex-col items-end" style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                          <span>{pred.pace}</span>
-                          <span className="text-muted text-xs" style={{ fontSize: '0.65rem', opacity: 0.7 }}>VDOT {pred.vdotEffective}</span>
+                          <span className="font-bold" style={{ color: '#10b981', fontSize: '0.95rem' }}>{pred.time}</span>
+                          <span className="text-muted text-xs" style={{ fontSize: '0.65rem', opacity: 0.7 }}>{pred.pace}</span>
                         </div>
                       </td>
                     </tr>
@@ -796,7 +1050,9 @@ export default function Predictors({ workouts = [], profile = {} }) {
             <div className="glass-card physiological-realism-card">
               <div className="flex justify-between items-start mb-3" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
-                  <span className="ai-recommendation-badge mb-2 bg-purple-glow">🔬 ANALIZADOR FISIOLÓGICO VDOT ELITE</span>
+                  <span className={`ai-recommendation-badge mb-2 ${exponentDetails.hasCalculatedFromRecords ? 'bg-green-glow' : 'bg-purple-glow'}`}>
+                    {exponentDetails.hasCalculatedFromRecords ? '🏆 CALIBRADO DE RÉCORDS REALES' : '🔬 ESTIMADO POR BIOMETRÍA & VOLUMEN'}
+                  </span>
                   <h3 className="gradient-text font-extrabold text-xl mt-1" style={{ fontSize: '1.4rem', margin: '0.25rem 0 0 0' }}>
                     Análisis de Realismo Fisiológico
                   </h3>
@@ -805,7 +1061,15 @@ export default function Predictors({ workouts = [], profile = {} }) {
               </div>
               
               <p className="text-secondary text-sm mb-4 leading-relaxed">
-                Tu exponente clásico de fatiga de Riegel de <strong>1.06</strong> ha sido recalibrado fisiológicamente a <strong className="text-primary-glow" style={{ color: 'var(--color-primary)' }}>{exponentDetails.finalExponent}</strong> basándose en tu volumen acumulado y métricas de composición y salud cardíaca.
+                {exponentDetails.hasCalculatedFromRecords ? (
+                  <>
+                    ¡Éxito! Hemos autocalibrado tu **Exponente de Fatiga Aeróbica de Riegel** real a <strong className="text-primary-glow" style={{ color: 'var(--color-primary)' }}>{exponentDetails.finalExponent}</strong> analizando tus mejores marcas históricas logradas en: <strong className="text-primary-glow" style={{ color: '#10b981' }}>{exponentDetails.recordsUsed.map(r => `${r.name} (${(r.distance).toFixed(1)}k)`).join(', ')}</strong>.
+                  </>
+                ) : (
+                  <>
+                    Tu exponente clásico de fatiga de Riegel de <strong>1.06</strong> ha sido estimado fisiológicamente a <strong className="text-primary-glow" style={{ color: 'var(--color-primary)' }}>{exponentDetails.finalExponent}</strong> basándose en tu volumen acumulado en los últimos 30 días, IMC y salud cardíaca.
+                  </>
+                )}
               </p>
 
               {/* Exponent Comparison Meter */}
@@ -815,14 +1079,14 @@ export default function Predictors({ workouts = [], profile = {} }) {
                   <div 
                     className="comparison-bar-fill-custom" 
                     style={{ 
-                      width: `${Math.min(100, Math.max(0, ((exponentDetails.finalExponent - 1.0) / 0.35) * 100))}%` 
+                      width: `${Math.min(100, Math.max(0, ((exponentDetails.finalExponent - 1.0) / 0.25) * 100))}%` 
                     }}
                   ></div>
                 </div>
-                <div className="flex justify-between text-xs font-bold mt-1" style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span className="text-secondary">Riegel Base (1.06)</span>
-                  <span className="text-primary font-bold">Tu Exponente ({exponentDetails.finalExponent})</span>
-                  <span className="text-muted">Desentrenado (1.25)</span>
+                <div className="flex justify-between text-xs font-bold mt-1" style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                  <span className="text-secondary" style={{ fontSize: '0.72rem' }}>Resistencia Élite (1.01)</span>
+                  <span className="text-primary font-bold" style={{ fontSize: '0.72rem', color: 'var(--color-primary)' }}>Tu Exponente ({exponentDetails.finalExponent})</span>
+                  <span className="text-muted" style={{ fontSize: '0.72rem' }}>Déficit Aeróbico (1.18+)</span>
                 </div>
               </div>
 
@@ -888,22 +1152,16 @@ export default function Predictors({ workouts = [], profile = {} }) {
                 {/* 4. Age & Gender */}
                 <div className="telemetry-bar-item">
                   <div className="flex justify-between items-center text-xs mb-1" style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span className="font-semibold text-secondary">Edad & Hito Biológico</span>
+                    <span className="font-semibold text-secondary">Estimado Biométrico</span>
                     <span className="font-bold" style={{ color: '#a855f7' }}>
-                      {exponentDetails.age}a / {exponentDetails.gender === 'female' ? 'Fem' : 'Masc'} ({
-                        (exponentDetails.agePenalty + exponentDetails.genderBonus) > 0 
-                        ? `+${(exponentDetails.agePenalty + exponentDetails.genderBonus).toFixed(3)}` 
-                        : (exponentDetails.agePenalty + exponentDetails.genderBonus) < 0 
-                        ? `-${Math.abs(exponentDetails.agePenalty + exponentDetails.genderBonus).toFixed(3)}` 
-                        : 'Neutro'
-                      })
+                      {exponentDetails.biometricExponent} exponente
                     </span>
                   </div>
                   <div className="dial-bar-track">
                     <div 
                       className="dial-bar-fill" 
                       style={{ 
-                        width: `${Math.min(100, (exponentDetails.age / 80) * 100)}%`,
+                        width: `${Math.min(100, ((exponentDetails.biometricExponent - 1.0) / 0.25) * 100)}%`,
                         backgroundColor: '#a855f7'
                       }}
                     ></div>
@@ -917,7 +1175,7 @@ export default function Predictors({ workouts = [], profile = {} }) {
                 <div className="flex gap-2" style={{ display: 'flex', gap: '0.5rem' }}>
                   <Brain size={18} className="ai-coach-glow-text" style={{ flexShrink: 0, marginTop: '2px', color: 'var(--color-primary)' }} />
                   <p className="text-xs text-secondary leading-relaxed" style={{ margin: 0 }}>
-                    <strong>Diagnóstico Deportivo Cooper VDOT:</strong> {exponentDetails.recommendation}
+                    <strong>Prescripción Científica VDOT & Riegel:</strong> {exponentDetails.recommendation}
                   </p>
                 </div>
               </div>
@@ -2547,6 +2805,13 @@ export default function Predictors({ workouts = [], profile = {} }) {
           background: rgba(139, 92, 246, 0.12) !important;
           color: #c084fc !important;
           text-shadow: 0 0 4px rgba(139, 92, 246, 0.3);
+        }
+
+        .bg-green-glow {
+          border: 1px solid rgba(16, 185, 129, 0.4) !important;
+          background: rgba(16, 185, 129, 0.12) !important;
+          color: #34d399 !important;
+          text-shadow: 0 0 4px rgba(16, 185, 129, 0.3);
         }
 
         .exponent-comparison-container {

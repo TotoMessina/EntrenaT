@@ -151,6 +151,31 @@ export const MOCK_WORKOUTS = [
     terrain: "Asfalto",
     notes: "Mejor marca personal en 10K. Las piernas responden increíble."
   },
+  {
+    id: "run-14",
+    type: "running",
+    date: getPastDateString(1),
+    distance: 12.0,
+    duration: "00:54:50",
+    heartRate: 165,
+    rpe: 8,
+    terrain: "Asfalto",
+    notes: "Fondo con bloque continuo de 5K a ritmo alegre de umbral.",
+    splits: [
+      { splitNumber: 1, distance: 1000, time: "05:10" },
+      { splitNumber: 2, distance: 1000, time: "05:00" },
+      { splitNumber: 3, distance: 1000, time: "04:50" },
+      { splitNumber: 4, distance: 1000, time: "04:05" },
+      { splitNumber: 5, distance: 1000, time: "04:00" },
+      { splitNumber: 6, distance: 1000, time: "03:55" },
+      { splitNumber: 7, distance: 1000, time: "03:58" },
+      { splitNumber: 8, distance: 1000, time: "04:02" },
+      { splitNumber: 9, distance: 1000, time: "04:45" },
+      { splitNumber: 10, distance: 1000, time: "04:55" },
+      { splitNumber: 11, distance: 1000, time: "05:00" },
+      { splitNumber: 12, distance: 1000, time: "05:10" }
+    ]
+  },
 
   // --- GYM WORKOUTS (Sobrecarga progresiva y variedad de volumen) ---
   {

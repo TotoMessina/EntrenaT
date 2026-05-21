@@ -34,6 +34,7 @@ export default function PerformanceHub({
         return (
           <TrainingPlanner 
             workouts={workouts} 
+            profile={profile}
             plans={plans} 
             onUpdatePlans={onUpdatePlans} 
           />

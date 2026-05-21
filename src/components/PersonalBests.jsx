@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Trophy, Calendar, Zap, Clock, Award, Medal, MapPin } from 'lucide-react';
-import { timeStringToSeconds, secondsToTimeString, formatPace } from '../utils/calculators';
+import { timeStringToSeconds, secondsToTimeString, formatPace, getBestEffortFromSplits } from '../utils/calculators';
 
 export default function PersonalBests({ workouts = [] }) {
   const prs = useMemo(() => {
@@ -17,9 +17,27 @@ export default function PersonalBests({ workouts = [] }) {
     return targets.map(target => {
       let bestEstimatedSeconds = Infinity;
       let matchingWorkout = null;
+      let isFromSplits = false;
 
       runs.forEach(run => {
         const dist = Number(run.distance);
+        const workoutSplits = run.splits || run.advanced_metrics?.splits;
+
+        // 1. Escanear parciales contiguos (splits) para ver si logramos un mejor tiempo para el target exacto
+        if (Array.isArray(workoutSplits) && workoutSplits.length > 0) {
+          const splitTimeSecs = getBestEffortFromSplits(workoutSplits, target.distance);
+          if (splitTimeSecs !== null && splitTimeSecs < bestEstimatedSeconds) {
+            bestEstimatedSeconds = splitTimeSecs;
+            matchingWorkout = {
+              ...run,
+              estimatedTime: splitTimeSecs,
+              avgPace: splitTimeSecs / target.distance
+            };
+            isFromSplits = true;
+          }
+        }
+
+        // 2. Comportamiento convencional: evaluar paso promedio global de la sesión completa
         if (dist >= target.distance) {
           const totalSecs = timeStringToSeconds(run.duration);
           if (totalSecs > 0) {
@@ -33,6 +51,7 @@ export default function PersonalBests({ workouts = [] }) {
                 estimatedTime,
                 avgPace
               };
+              isFromSplits = false;
             }
           }
         }
@@ -42,7 +61,8 @@ export default function PersonalBests({ workouts = [] }) {
         ...target,
         bestTime: bestEstimatedSeconds === Infinity ? null : secondsToTimeString(bestEstimatedSeconds),
         bestPace: bestEstimatedSeconds === Infinity ? null : formatPace(matchingWorkout.avgPace),
-        workout: matchingWorkout
+        workout: matchingWorkout,
+        isFromSplits: bestEstimatedSeconds !== Infinity ? isFromSplits : false
       };
     });
   }, [workouts]);
@@ -159,10 +179,17 @@ export default function PersonalBests({ workouts = [] }) {
                     zIndex: 1
                   }}
                 >
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                    <MapPin size={12} style={{ color: 'var(--color-running)' }} />
-                    Actividad de origen: {pr.workout.distance} km en {pr.workout.duration}
-                  </span>
+                  {pr.isFromSplits ? (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', color: '#38bdf8', fontWeight: '700', textShadow: '0 0 8px rgba(56,189,248,0.3)' }}>
+                      <Zap size={12} className="animate-pulse" style={{ color: '#38bdf8' }} />
+                      ⚡ Parcial óptimo: {pr.distance} km en {pr.bestTime} (de corrida de {pr.workout.distance} km)
+                    </span>
+                  ) : (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                      <MapPin size={12} style={{ color: 'var(--color-running)' }} />
+                      Actividad de origen: {pr.workout.distance} km en {pr.workout.duration}
+                    </span>
+                  )}
                   {pr.workout.notes && (
                     <span style={{ maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontStyle: 'italic' }} title={pr.workout.notes}>
                       "{pr.workout.notes}"
