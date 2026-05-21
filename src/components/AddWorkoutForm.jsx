@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import GpxVisualizer from './GpxVisualizer';
 import { compressGpxData, decompressGpxData } from '../utils/gpxCompressor';
+import { timeStringToSeconds, secondsToTimeString } from '../utils/calculators';
 
 
 const EXERCISE_SUGGESTIONS = {
@@ -77,10 +78,23 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
 
   // New Running and Splits states
   const [shoeId, setShoeId] = useState('');
-  const [splitsType, setSplitsType] = useState('auto'); // 'auto' (Km-by-Km continuous) vs 'manual' (repetitions/intervals)
+  const [splitsType, setSplitsType] = useState('auto'); // 'auto' (Km-by-Km continuous) vs 'manual' (repetitions/intervals) vs 'structured'
   const [numSeries, setNumSeries] = useState(5);
   const [distanceSeries, setDistanceSeries] = useState('400');
   const [customDistanceSeries, setCustomDistanceSeries] = useState('600');
+
+  // Structured Workout States
+  const [hasWarmup, setHasWarmup] = useState(true);
+  const [warmupType, setWarmupType] = useState('distance'); // 'distance', 'duration'
+  const [warmupValue, setWarmupValue] = useState('2.0');
+  const [intervalType, setIntervalType] = useState('distance'); // 'distance', 'duration'
+  const [intervalValue, setIntervalValue] = useState('400');
+  const [hasRest, setHasRest] = useState(true);
+  const [restType, setRestType] = useState('duration'); // 'duration', 'distance'
+  const [restValue, setRestValue] = useState('90');
+  const [hasCooldown, setHasCooldown] = useState(true);
+  const [cooldownType, setCooldownType] = useState('distance'); // 'distance', 'duration'
+  const [cooldownValue, setCooldownValue] = useState('1.5');
 
   // Auto-initialize shoeId using the active shoe
   useEffect(() => {
@@ -150,6 +164,21 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
     }
     newSplits[index].time = formatted;
     setSplits(newSplits);
+
+    // Auto-update total duration if not auto-km splits
+    if (splitsType !== 'auto') {
+      let totalSeconds = 0;
+      newSplits.forEach((s, idx) => {
+        const secs = timeStringToSeconds(s.time);
+        totalSeconds += secs;
+      });
+      const hh = Math.floor(totalSeconds / 3600);
+      const mm = Math.floor((totalSeconds % 3600) / 60);
+      const ss = totalSeconds % 60;
+      setDurationHH(String(hh).padStart(2, '0'));
+      setDurationMM(String(mm).padStart(2, '0'));
+      setDurationSS(String(ss).padStart(2, '0'));
+    }
   };
 
   const generateAutoSplits = () => {
@@ -228,6 +257,127 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
     }
 
     setSplits(newSplits);
+  };
+
+  const generateStructuredSplits = () => {
+    const newSplits = [];
+    let splitIdx = 1;
+    let totalSecs = 0;
+    let totalDistMeters = 0;
+
+    // 1. Warm-up
+    if (hasWarmup) {
+      let wuDist = 0;
+      let wuSecs = 0;
+      if (warmupType === 'distance') {
+        const val = parseFloat(warmupValue) || 2.0;
+        wuDist = val * 1000;
+        wuSecs = val * 360; // 6:00 min/km
+      } else {
+        const val = parseFloat(warmupValue) || 10;
+        wuSecs = val * 60;
+        wuDist = (wuSecs / 360) * 1000;
+      }
+      newSplits.push({
+        splitNumber: splitIdx++,
+        type: 'warmup',
+        distance: Math.round(wuDist),
+        time: secondsToTimeString(Math.round(wuSecs))
+      });
+      totalSecs += wuSecs;
+      totalDistMeters += wuDist;
+    }
+
+    // 2. Intervals & Rests
+    const count = parseInt(numSeries) || 5;
+    const intervalValNum = parseFloat(intervalValue) || 400;
+
+    for (let i = 1; i <= count; i++) {
+      // Repetition
+      let repDist = 0;
+      let repSecs = 0;
+      if (intervalType === 'distance') {
+        repDist = intervalValNum;
+        repSecs = (intervalValNum / 1000) * 240; // 4:00 min/km
+      } else {
+        repSecs = intervalValNum * 60;
+        repDist = (repSecs / 240) * 1000;
+      }
+
+      newSplits.push({
+        splitNumber: splitIdx++,
+        type: 'interval',
+        repNumber: i,
+        distance: Math.round(repDist),
+        time: secondsToTimeString(Math.round(repSecs))
+      });
+      totalSecs += repSecs;
+      totalDistMeters += repDist;
+
+      // Rest
+      if (hasRest && i < count) {
+        let rDist = 0;
+        let rSecs = 0;
+        if (restType === 'duration') {
+          let valSecs = 90;
+          if (String(restValue).includes(':')) {
+            const parts = String(restValue).split(':');
+            valSecs = (parseInt(parts[0]) || 0) * 60 + (parseInt(parts[1]) || 0);
+          } else {
+            valSecs = parseInt(restValue) || 90;
+          }
+          rSecs = valSecs;
+          rDist = 0; // standing/walking rest
+        } else {
+          const val = parseFloat(restValue) || 200;
+          rDist = val;
+          rSecs = (val / 1000) * 450; // 7:30 min/km active jog
+        }
+
+        newSplits.push({
+          splitNumber: splitIdx++,
+          type: 'rest',
+          distance: Math.round(rDist),
+          time: secondsToTimeString(Math.round(rSecs))
+        });
+        totalSecs += rSecs;
+        totalDistMeters += rDist;
+      }
+    }
+
+    // 3. Cool-down
+    if (hasCooldown) {
+      let cdDist = 0;
+      let cdSecs = 0;
+      if (cooldownType === 'distance') {
+        const val = parseFloat(cooldownValue) || 1.5;
+        cdDist = val * 1000;
+        cdSecs = val * 390; // 6:30 min/km
+      } else {
+        const val = parseFloat(cooldownValue) || 8;
+        cdSecs = val * 60;
+        cdDist = (cdSecs / 390) * 1000;
+      }
+      newSplits.push({
+        splitNumber: splitIdx++,
+        type: 'cooldown',
+        distance: Math.round(cdDist),
+        time: secondsToTimeString(Math.round(cdSecs))
+      });
+      totalSecs += cdSecs;
+      totalDistMeters += cdDist;
+    }
+
+    setSplits(newSplits);
+
+    // Auto-update totals
+    setDistance((Math.round((totalDistMeters / 1000) * 100) / 100).toString());
+    const hh = Math.floor(totalSecs / 3600);
+    const mm = Math.floor((totalSecs % 3600) / 60);
+    const ss = Math.round(totalSecs % 60);
+    setDurationHH(String(hh).padStart(2, '0'));
+    setDurationMM(String(mm).padStart(2, '0'));
+    setDurationSS(String(ss).padStart(2, '0'));
   };
 
   // Gym-specific states
@@ -1010,7 +1160,7 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
                       </div>
                     </div>
 
-                    {/* TWO-MODE SPLITS EDITOR */}
+                    {/* THREE-MODE SPLITS EDITOR */}
                     <div className="splits-container" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '1rem' }}>
                       <div className="flex-between-row mb-3" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
                         <label className="form-label-custom font-bold text-xs" style={{ margin: 0 }}>Registro de Pasadas / Splits</label>
@@ -1043,10 +1193,23 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
                           >
                             Series / Intervalos
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => { setSplitsType('structured'); setSplits([]); }}
+                            className="px-2 py-1 text-xs rounded-md transition-all font-semibold"
+                            style={{
+                              background: splitsType === 'structured' ? 'var(--color-running)' : 'transparent',
+                              color: splitsType === 'structured' ? '#000' : 'var(--text-secondary)',
+                              border: 'none',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Estructurado
+                          </button>
                         </div>
                       </div>
 
-                      {splitsType === 'auto' ? (
+                      {splitsType === 'auto' && (
                         <div className="auto-splits-generator mb-3">
                           <p className="text-xs text-muted mb-2">Genera splits automáticos de 1km (1000m) basados en la distancia y duración ingresadas.</p>
                           <button
@@ -1058,7 +1221,9 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
                             🔄 Generar Splits Km-por-Km
                           </button>
                         </div>
-                      ) : (
+                      )}
+
+                      {splitsType === 'manual' && (
                         <div className="manual-intervals-generator mb-4 p-3 rounded-lg" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}>
                           <div className="grid grid-cols-2 gap-3 mb-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                             <div className="form-group-custom">
@@ -1114,28 +1279,235 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
                         </div>
                       )}
 
+                      {splitsType === 'structured' && (
+                        <div className="structured-workout-generator mb-4 p-4 rounded-xl animate-fade-in" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                          <p className="text-xs text-muted">Configura una estructura de velocidad completa. Al finalizar, haz clic en el botón de abajo para generar los tramos y completar los totales.</p>
+                          
+                          {/* 1. Warmup Group */}
+                          <div className="structured-group p-3 rounded-lg" style={{ background: 'rgba(59, 130, 246, 0.03)', border: '1px solid rgba(59, 130, 246, 0.15)' }}>
+                            <div className="flex-between-row mb-2" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <label className="text-xs font-bold flex-center" style={{ color: '#3b82f6', gap: '4px', margin: 0, cursor: 'pointer' }}>
+                                <input 
+                                  type="checkbox" 
+                                  checked={hasWarmup} 
+                                  onChange={(e) => setHasWarmup(e.target.checked)} 
+                                  style={{ marginRight: '6px', cursor: 'pointer' }}
+                                />
+                                🔥 Entrada en Calor (Calentamiento)
+                              </label>
+                            </div>
+                            
+                            {hasWarmup && (
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                                <div className="form-group-custom">
+                                  <label className="text-xs text-secondary block mb-1">Medir por</label>
+                                  <select 
+                                    value={warmupType} 
+                                    onChange={(e) => setWarmupType(e.target.value)} 
+                                    className="form-select text-xs" 
+                                    style={{ padding: '0.35rem' }}
+                                  >
+                                    <option value="distance">Distancia (km)</option>
+                                    <option value="duration">Tiempo (min)</option>
+                                  </select>
+                                </div>
+                                <div className="form-group-custom">
+                                  <label className="text-xs text-secondary block mb-1">Valor</label>
+                                  <input 
+                                    type="text" 
+                                    value={warmupValue} 
+                                    onChange={(e) => setWarmupValue(e.target.value)} 
+                                    className="form-input text-xs" 
+                                    style={{ padding: '0.35rem' }}
+                                    placeholder={warmupType === 'distance' ? 'ej: 2.0' : 'ej: 10'}
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* 2. Intervals Group */}
+                          <div className="structured-group p-3 rounded-lg" style={{ background: 'rgba(16, 185, 129, 0.03)', border: '1px solid rgba(16, 185, 129, 0.15)' }}>
+                            <label className="text-xs font-bold block mb-2" style={{ color: 'var(--color-running)' }}>🏃 Series de Velocidad / Pasadas</label>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
+                              <div className="form-group-custom">
+                                <label className="text-xs text-secondary block mb-1">Repeticiones</label>
+                                <input 
+                                  type="number" 
+                                  min="1" 
+                                  value={numSeries} 
+                                  onChange={(e) => setNumSeries(parseInt(e.target.value) || 1)} 
+                                  className="form-input text-xs" 
+                                  style={{ padding: '0.35rem' }}
+                                />
+                              </div>
+                              <div className="form-group-custom">
+                                <label className="text-xs text-secondary block mb-1">Medir por</label>
+                                <select 
+                                  value={intervalType} 
+                                  onChange={(e) => setIntervalType(e.target.value)} 
+                                  className="form-select text-xs" 
+                                  style={{ padding: '0.35rem' }}
+                                >
+                                  <option value="distance">Distancia (metros)</option>
+                                  <option value="duration">Tiempo (min)</option>
+                                </select>
+                              </div>
+                              <div className="form-group-custom">
+                                <label className="text-xs text-secondary block mb-1">Valor</label>
+                                <input 
+                                  type="text" 
+                                  value={intervalValue} 
+                                  onChange={(e) => setIntervalValue(e.target.value)} 
+                                  className="form-input text-xs" 
+                                  style={{ padding: '0.35rem' }}
+                                  placeholder={intervalType === 'distance' ? 'ej: 400' : 'ej: 2'}
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* 3. Rest Group */}
+                          <div className="structured-group p-3 rounded-lg" style={{ background: 'rgba(234, 179, 8, 0.03)', border: '1px solid rgba(234, 179, 8, 0.15)' }}>
+                            <label className="text-xs font-bold block mb-2" style={{ color: '#eab308', cursor: 'pointer' }}>
+                              <input 
+                                type="checkbox" 
+                                checked={hasRest} 
+                                onChange={(e) => setHasRest(e.target.checked)} 
+                                style={{ marginRight: '6px', cursor: 'pointer' }}
+                              />
+                              ⏱️ Recuperación / Descanso (Entre Series)
+                            </label>
+                            
+                            {hasRest && (
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                                <div className="form-group-custom">
+                                  <label className="text-xs text-secondary block mb-1">Medir por</label>
+                                  <select 
+                                    value={restType} 
+                                    onChange={(e) => setRestType(e.target.value)} 
+                                    className="form-select text-xs" 
+                                    style={{ padding: '0.35rem' }}
+                                  >
+                                    <option value="duration">Tiempo (segundos)</option>
+                                    <option value="distance">Distancia (metros)</option>
+                                  </select>
+                                </div>
+                                <div className="form-group-custom">
+                                  <label className="text-xs text-secondary block mb-1">Valor</label>
+                                  <input 
+                                    type="text" 
+                                    value={restValue} 
+                                    onChange={(e) => setRestValue(e.target.value)} 
+                                    className="form-input text-xs" 
+                                    style={{ padding: '0.35rem' }}
+                                    placeholder={restType === 'duration' ? 'ej: 90' : 'ej: 200'}
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* 4. Cooldown Group */}
+                          <div className="structured-group p-3 rounded-lg" style={{ background: 'rgba(168, 85, 247, 0.03)', border: '1px solid rgba(168, 85, 247, 0.15)' }}>
+                            <label className="text-xs font-bold block mb-2" style={{ color: '#a855f7', cursor: 'pointer' }}>
+                              <input 
+                                type="checkbox" 
+                                checked={hasCooldown} 
+                                onChange={(e) => setHasCooldown(e.target.checked)} 
+                                style={{ marginRight: '6px', cursor: 'pointer' }}
+                              />
+                              ❄️ Vuelta a la Calma / Enfriamiento
+                            </label>
+                            
+                            {hasCooldown && (
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                                <div className="form-group-custom">
+                                  <label className="text-xs text-secondary block mb-1">Medir por</label>
+                                  <select 
+                                    value={cooldownType} 
+                                    onChange={(e) => setCooldownType(e.target.value)} 
+                                    className="form-select text-xs" 
+                                    style={{ padding: '0.35rem' }}
+                                  >
+                                    <option value="distance">Distancia (km)</option>
+                                    <option value="duration">Tiempo (min)</option>
+                                  </select>
+                                </div>
+                                <div className="form-group-custom">
+                                  <label className="text-xs text-secondary block mb-1">Valor</label>
+                                  <input 
+                                    type="text" 
+                                    value={cooldownValue} 
+                                    onChange={(e) => setCooldownValue(e.target.value)} 
+                                    className="form-input text-xs" 
+                                    style={{ padding: '0.35rem' }}
+                                    placeholder={cooldownType === 'distance' ? 'ej: 1.5' : 'ej: 8'}
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Action Button */}
+                          <button
+                            type="button"
+                            onClick={generateStructuredSplits}
+                            className="btn btn-secondary w-full py-2 flex-center text-xs"
+                            style={{ color: 'var(--color-running)', borderColor: 'rgba(16, 185, 129, 0.3)', gap: '6px', fontWeight: 'bold' }}
+                          >
+                            ⚡ Generar Estructura y Calcular Totales
+                          </button>
+                        </div>
+                      )}
+
                       {/* RENDERING DYNAMIC INPUT SPLITS LIST */}
                       {splits.length > 0 && (
                         <div className="splits-fields-list mt-3" style={{ maxHeight: '250px', overflowY: 'auto', paddingRight: '4px' }}>
                           <label className="form-label-custom text-xs mb-2 block" style={{ color: 'var(--color-running)', fontWeight: 'bold' }}>Tiempos de cada Split / Repetición (MM:SS)</label>
-                          {splits.map((split, index) => (
-                            <div key={index} className="flex-between-row mb-2 animate-fade-in" style={{ gap: '0.5rem', alignItems: 'center' }}>
-                              <span className="text-secondary font-bold text-xs" style={{ width: '80px', flexShrink: 0 }}>
-                                #{split.splitNumber} ({split.distance >= 1000 ? `${(split.distance / 1000).toFixed(1)}k` : `${split.distance}m`})
-                              </span>
-                              <input 
-                                type="text" 
-                                placeholder="MM:SS" 
-                                value={getDisplayTime(split.time)}
-                                onChange={(e) => handleSplitTimeChange(index, e.target.value)}
-                                className="form-input text-xs"
-                                style={{ padding: '0.35rem', flex: 1 }}
-                              />
-                              <button type="button" onClick={() => handleRemoveSplit(index)} className="btn" style={{ padding: '0.4rem', color: '#ef4444', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '6px' }}>
-                                <Trash2 size={12} />
-                              </button>
-                            </div>
-                          ))}
+                          {splits.map((split, index) => {
+                            let label = `#${split.splitNumber}`;
+                            let borderStyle = 'rgba(255,255,255,0.05)';
+                            if (split.type === 'warmup') {
+                              label = `🔥 Entrada Calor`;
+                              borderStyle = '#3b82f6';
+                            } else if (split.type === 'interval') {
+                              label = `🏃 Pasada #${split.repNumber || split.splitNumber}`;
+                              borderStyle = 'var(--color-running)';
+                            } else if (split.type === 'rest') {
+                              label = `⏱️ Descanso`;
+                              borderStyle = '#eab308';
+                            } else if (split.type === 'cooldown') {
+                              label = `❄️ Enfriamiento`;
+                              borderStyle = '#a855f7';
+                            }
+
+                            return (
+                              <div key={index} className="flex-between-row mb-2 animate-fade-in" style={{ 
+                                gap: '0.5rem', 
+                                alignItems: 'center',
+                                borderLeft: `3px solid ${borderStyle}`,
+                                background: 'rgba(255, 255, 255, 0.01)',
+                                padding: '4px 8px',
+                                borderRadius: '4px'
+                              }}>
+                                <span className="text-secondary font-bold text-xs" style={{ width: '130px', flexShrink: 0 }}>
+                                  {label} ({split.distance >= 1000 ? `${(split.distance / 1000).toFixed(2)}k` : `${split.distance}m`})
+                                </span>
+                                <input 
+                                  type="text" 
+                                  placeholder="MM:SS" 
+                                  value={getDisplayTime(split.time)}
+                                  onChange={(e) => handleSplitTimeChange(index, e.target.value)}
+                                  className="form-input text-xs"
+                                  style={{ padding: '0.35rem', flex: 1 }}
+                                />
+                                <button type="button" onClick={() => handleRemoveSplit(index)} className="btn" style={{ padding: '0.4rem', color: '#ef4444', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '6px' }}>
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
+                            );
+                          })}
                           
                           {splitsType === 'auto' && (
                             <button type="button" onClick={handleAddSplit} className="btn btn-secondary w-full flex-center mt-2 text-xs" style={{ padding: '0.4rem' }}>
@@ -2303,10 +2675,12 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
         @media (max-width: 768px) {
           .form-modal-overlay {
             align-items: flex-end;
+            padding: 0;
           }
 
           .form-modal-card {
-            max-height: 90dvh;
+            max-height: 85dvh;
+            overflow-y: auto;
             border-radius: 24px 24px 0 0;
             padding: 1.25rem 1rem 1.5rem;
             width: 100%;

@@ -23,36 +23,47 @@ export default function IntervalBuilder({ workouts = [] }) {
     if (!activeWorkout) return null;
     const splits = activeWorkout.advanced_metrics.splits;
     
+    const hasIntervals = splits.some(s => s.type === 'interval');
     let totalSeconds = 0;
     let totalDistance = 0;
     let fastestSeconds = Infinity;
     let slowestSeconds = 0;
+    let intervalSecondsSum = 0;
+    let intervalCount = 0;
     
     const parsedSplits = splits.map((s, idx) => {
       const secs = timeStringToSeconds(s.time);
-      totalSeconds += secs;
-      totalDistance += Number(s.distance || 1000);
+      totalDistance += Number(s.distance || 0);
       
-      if (secs < fastestSeconds) fastestSeconds = secs;
-      if (secs > slowestSeconds) slowestSeconds = secs;
+      const isIntervalTarget = !hasIntervals || s.type === 'interval';
+      if (isIntervalTarget) {
+        intervalSecondsSum += secs;
+        intervalCount++;
+        if (secs < fastestSeconds) fastestSeconds = secs;
+        if (secs > slowestSeconds) slowestSeconds = secs;
+      }
       
       return {
         splitNumber: s.splitNumber || (idx + 1),
-        distance: Number(s.distance || 1000),
+        distance: Number(s.distance || 0),
         timeStr: s.time,
-        seconds: secs
+        seconds: secs,
+        type: s.type,
+        repNumber: s.repNumber
       };
     });
 
-    const numSplits = parsedSplits.length;
-    const avgSeconds = numSplits > 0 ? totalSeconds / numSplits : 0;
+    const avgSeconds = intervalCount > 0 ? intervalSecondsSum / intervalCount : 0;
 
     // Calcular desviación estándar para medir consistencia
     let varianceSum = 0;
     parsedSplits.forEach(s => {
-      varianceSum += Math.pow(s.seconds - avgSeconds, 2);
+      const isIntervalTarget = !hasIntervals || s.type === 'interval';
+      if (isIntervalTarget) {
+        varianceSum += Math.pow(s.seconds - avgSeconds, 2);
+      }
     });
-    const variance = numSplits > 0 ? varianceSum / numSplits : 0;
+    const variance = intervalCount > 0 ? varianceSum / intervalCount : 0;
     const stdDev = Math.sqrt(variance);
     
     // Score de consistencia (100 - Coeficiente de Variación %)
@@ -74,14 +85,15 @@ export default function IntervalBuilder({ workouts = [] }) {
 
     return {
       parsedSplits,
-      numSplits,
-      totalSeconds,
+      numSplits: intervalCount,
+      totalSeconds: intervalSecondsSum,
       totalDistance: Math.round((totalDistance / 1000) * 100) / 100,
       avgSeconds,
       fastestSeconds,
       slowestSeconds,
       consistencyScore,
-      advice
+      advice,
+      hasIntervals
     };
   }, [activeWorkout]);
 
@@ -119,7 +131,7 @@ export default function IntervalBuilder({ workouts = [] }) {
             >
               {workoutsWithSplits.map(w => (
                 <option key={w.id} value={w.id}>
-                  {new Date(w.date + 'T00:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })} - {w.sessionName || 'Entrenamiento de Carrera'} ({w.advanced_metrics.splits.length} pasadas)
+                  {new Date(w.date + 'T00:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })} - {w.sessionName || 'Entrenamiento de Carrera'} ({w.advanced_metrics.splits.length} splits)
                 </option>
               ))}
             </select>
@@ -179,11 +191,11 @@ export default function IntervalBuilder({ workouts = [] }) {
                   </div>
                   <div style={{ background: 'rgba(255,255,255,0.01)', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
                     <span style={{ display: 'block', fontSize: '0.65rem', color: 'var(--text-muted)' }}>Serie Más Rápida</span>
-                    <strong style={{ fontSize: '1rem', color: '#10b981' }}>{secondsToTimeString(splitStats.fastestSeconds).substring(3)}</strong>
+                    <strong style={{ fontSize: '1rem', color: '#10b981' }}>{splitStats.fastestSeconds !== Infinity ? secondsToTimeString(splitStats.fastestSeconds).substring(3) : '--:--'}</strong>
                   </div>
                   <div style={{ background: 'rgba(255,255,255,0.01)', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
                     <span style={{ display: 'block', fontSize: '0.65rem', color: 'var(--text-muted)' }}>Serie Más Lenta</span>
-                    <strong style={{ fontSize: '1rem', color: '#ef4444' }}>{secondsToTimeString(splitStats.slowestSeconds).substring(3)}</strong>
+                    <strong style={{ fontSize: '1rem', color: '#ef4444' }}>{splitStats.slowestSeconds > 0 ? secondsToTimeString(splitStats.slowestSeconds).substring(3) : '--:--'}</strong>
                   </div>
                 </div>
               </div>
@@ -197,7 +209,36 @@ export default function IntervalBuilder({ workouts = [] }) {
               
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 {splitStats.parsedSplits.map((split, index) => {
-                  const pace = split.seconds / (split.distance / 1000);
+                  const isInterval = !splitStats.hasIntervals || split.type === 'interval';
+                  const pace = split.distance > 0 ? split.seconds / (split.distance / 1000) : 0;
+                  
+                  let label = `#${split.splitNumber}`;
+                  let badgeColor = 'rgba(255,255,255,0.05)';
+                  let badgeText = '';
+                  let borderLeftStyle = '1px solid rgba(255,255,255,0.03)';
+                  
+                  if (split.type === 'warmup') {
+                    label = `🔥 Entrada en Calor`;
+                    badgeColor = 'rgba(59, 130, 246, 0.12)';
+                    badgeText = 'Calentamiento';
+                    borderLeftStyle = '3px solid #3b82f6';
+                  } else if (split.type === 'cooldown') {
+                    label = `❄️ Enfriamiento`;
+                    badgeColor = 'rgba(168, 85, 247, 0.12)';
+                    badgeText = 'Enfriamiento';
+                    borderLeftStyle = '3px solid #a855f7';
+                  } else if (split.type === 'rest') {
+                    label = `⏱️ Descanso`;
+                    badgeColor = 'rgba(234, 179, 8, 0.12)';
+                    badgeText = 'Descanso';
+                    borderLeftStyle = '3px solid #eab308';
+                  } else if (split.type === 'interval') {
+                    label = `🏃 Pasada #${split.repNumber || split.splitNumber}`;
+                    badgeColor = 'rgba(16, 185, 129, 0.12)';
+                    badgeText = 'Pasada';
+                    borderLeftStyle = '3px solid var(--color-running)';
+                  }
+
                   const diffSeconds = split.seconds - splitStats.avgSeconds;
                   const diffColor = diffSeconds <= 0 ? '#10b981' : '#ef4444'; // Rápido = verde, Lento = rojo
                   const diffText = diffSeconds === 0 ? 'Media' : `${diffSeconds > 0 ? '+' : ''}${Math.round(diffSeconds * 10) / 10}s`;
@@ -214,6 +255,7 @@ export default function IntervalBuilder({ workouts = [] }) {
                       style={{ 
                         background: 'rgba(255,255,255,0.01)', 
                         border: '1px solid rgba(255,255,255,0.03)', 
+                        borderLeft: borderLeftStyle,
                         borderRadius: '10px', 
                         padding: '0.75rem',
                         fontSize: '0.75rem'
@@ -221,37 +263,49 @@ export default function IntervalBuilder({ workouts = [] }) {
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          <span style={{ fontWeight: '700', color: '#fff', background: 'rgba(255,255,255,0.05)', width: '20px', height: '20px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            {split.splitNumber}
+                          <span style={{ fontWeight: '700', color: '#fff', fontSize: '0.8rem' }}>
+                            {label}
                           </span>
-                          <span style={{ color: 'var(--text-muted)' }}>{(split.distance / 1000).toFixed(1)} km</span>
+                          <span style={{ color: 'var(--text-muted)' }}>
+                            {split.distance >= 1000 ? `${(split.distance / 1000).toFixed(2)} km` : `${split.distance} m`}
+                          </span>
                         </div>
 
                         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
                           <strong style={{ color: '#fff', fontSize: '0.85rem' }}>{split.timeStr.substring(3)}</strong>
-                          <span style={{ color: 'var(--color-running)', fontWeight: '600' }}>{formatPace(pace).replace(' min/km', '/k')}</span>
-                          <span className="badge" style={{ background: `${diffColor}10`, color: diffColor, border: `1px solid ${diffColor}20`, fontSize: '0.65rem' }}>
-                            {diffText}
-                          </span>
+                          <span style={{ color: 'var(--color-running)', fontWeight: '600' }}>{pace > 0 ? formatPace(pace).replace(' min/km', '/k') : 'Parado'}</span>
+                          {isInterval ? (
+                            <span className="badge" style={{ background: `${diffColor}10`, color: diffColor, border: `1px solid ${diffColor}20`, fontSize: '0.65rem' }}>
+                              {diffText}
+                            </span>
+                          ) : (
+                            <span className="badge" style={{ background: badgeColor, color: split.type === 'warmup' ? '#3b82f6' : split.type === 'cooldown' ? '#a855f7' : '#eab308', border: '1px solid rgba(255,255,255,0.05)', fontSize: '0.65rem' }}>
+                              {badgeText}
+                            </span>
+                          )}
                         </div>
                       </div>
 
                       {/* Visual Bar Chart Indicator */}
-                      <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.03)', borderRadius: '3px', overflow: 'hidden', position: 'relative' }}>
-                        {/* Average Marker Line (Center) */}
-                        <div style={{ position: 'absolute', left: '50%', width: '1px', height: '100%', background: 'rgba(255,255,255,0.25)', zIndex: 2 }}></div>
-                        
-                        {/* Bar */}
-                        <div style={{ 
-                          position: 'absolute',
-                          left: barWidth >= 50 ? '50%' : `${barWidth}%`,
-                          width: `${Math.abs(barOffset)}%`,
-                          height: '100%',
-                          background: diffSeconds <= 0 ? '#10b981' : '#ef4444',
-                          boxShadow: `0 0 6px ${diffSeconds <= 0 ? '#10b981' : '#ef4444'}50`,
-                          zIndex: 1
-                        }} />
-                      </div>
+                      {isInterval ? (
+                        <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.03)', borderRadius: '3px', overflow: 'hidden', position: 'relative' }}>
+                          {/* Average Marker Line (Center) */}
+                          <div style={{ position: 'absolute', left: '50%', width: '1px', height: '100%', background: 'rgba(255,255,255,0.25)', zIndex: 2 }}></div>
+                          
+                          {/* Bar */}
+                          <div style={{ 
+                            position: 'absolute',
+                            left: barWidth >= 50 ? '50%' : `${barWidth}%`,
+                            width: `${Math.abs(barOffset)}%`,
+                            height: '100%',
+                            background: diffSeconds <= 0 ? '#10b981' : '#ef4444',
+                            boxShadow: `0 0 6px ${diffSeconds <= 0 ? '#10b981' : '#ef4444'}50`,
+                            zIndex: 1
+                          }} />
+                        </div>
+                      ) : (
+                        <div style={{ width: '100%', height: '2px', background: 'rgba(255,255,255,0.01)', borderRadius: '1px' }}></div>
+                      )}
                     </div>
                   );
                 })}

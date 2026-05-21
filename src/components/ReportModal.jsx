@@ -1205,6 +1205,146 @@ export default function ReportModal({ workouts, profile, onClose }) {
             page-break-before: always !important;
           }
         }
+
+        /* --- MOBILE RESPONSIVE ENGINE RULES --- */
+        @media (max-width: 768px) {
+          .report-modal-backdrop {
+            padding: 0.5rem !important;
+          }
+
+          .report-modal-wrapper {
+            height: 95dvh !important;
+            max-height: 100% !important;
+            border-radius: 12px !important;
+          }
+
+          .report-modal-header {
+            padding: 0.85rem 1rem !important;
+            flex-direction: column !important;
+            gap: 0.75rem !important;
+            align-items: stretch !important;
+            position: relative !important;
+          }
+
+          .report-modal-header .header-icon-title {
+            gap: 0.5rem !important;
+          }
+
+          .report-modal-header .header-icon-title h2 {
+            font-size: 1.1rem !important;
+          }
+
+          .report-modal-header .header-icon-title span {
+            font-size: 0.68rem !important;
+          }
+
+          .report-modal-header > div:last-child {
+            display: flex !important;
+            width: 100% !important;
+            justify-content: flex-start !important;
+            gap: 0.5rem !important;
+            flex-wrap: wrap !important;
+            padding-right: 2.5rem !important;
+          }
+
+          /* Period dropdown & buttons on mobile */
+          .toolbar-select {
+            font-size: 0.75rem !important;
+            min-height: 32px !important;
+            padding: 0.35rem 0.5rem 0.35rem 1.5rem !important;
+            width: 120px !important;
+          }
+
+          .select-icon {
+            left: 0.45rem !important;
+          }
+
+          .export-ai-btn, .print-trigger-btn {
+            padding: 0.35rem 0.65rem !important;
+            font-size: 0.75rem !important;
+            min-height: 32px !important;
+            flex: 1 !important;
+            justify-content: center !important;
+          }
+
+          .hide-text-mobile {
+            display: none !important;
+          }
+
+          .btn-close-modal {
+            position: absolute !important;
+            top: 0.75rem !important;
+            right: 0.75rem !important;
+            padding: 6px !important;
+            background: rgba(255, 255, 255, 0.05) !important;
+            border-radius: 50% !important;
+            z-index: 10 !important;
+          }
+
+          .report-preview-scroll-container {
+            padding: 0.75rem !important;
+          }
+
+          .printable-report-container {
+            padding: 1.25rem 1rem !important;
+            border-radius: 12px !important;
+          }
+
+          .report-print-banner {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 0.5rem !important;
+          }
+
+          .doc-meta-print {
+            text-align: left !important;
+          }
+
+          /* Grids collapsing on mobile */
+          .report-section-grid {
+            grid-template-columns: 1fr !important;
+            gap: 1rem !important;
+          }
+
+          .report-mini-stats-grid {
+            grid-template-columns: repeat(2, 1fr) !important;
+            gap: 0.5rem !important;
+          }
+
+          .unlocked-medals-grid-print {
+            grid-template-columns: 1fr !important;
+            gap: 0.65rem !important;
+          }
+
+          .print-signature-grid {
+            grid-template-columns: 1fr !important;
+            gap: 1.5rem !important;
+            margin-top: 1rem !important;
+          }
+
+          /* Table responsiveness */
+          .report-data-table {
+            font-size: 0.78rem !important;
+            display: block !important;
+            overflow-x: auto !important;
+            white-space: nowrap !important;
+            width: 100% !important;
+          }
+
+          .report-data-table th, .report-data-table td {
+            padding: 0.5rem 0.4rem !important;
+          }
+
+          /* General styling adjustments to fit */
+          .report-athlete-card {
+            padding: 0.85rem !important;
+          }
+
+          .report-main-section {
+            padding: 1rem !important;
+            margin-bottom: 1rem !important;
+          }
+        }
       `}</style>
 
     </div>
