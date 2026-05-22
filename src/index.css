@@ -23,6 +23,18 @@
   --color-gym: #ec4899; /* Pink */
   --color-gym-glow: rgba(236, 72, 153, 0.25);
   --color-gym-gradient: linear-gradient(135deg, #ec4899 0%, #d946ef 100%);
+
+  --color-hr: #ef4444; /* Red */
+  --color-hr-glow: rgba(239, 68, 68, 0.25);
+  --color-hr-gradient: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
+
+  --color-acwr: #38bdf8; /* Sky Blue */
+  --color-acwr-glow: rgba(56, 189, 248, 0.25);
+  --color-acwr-gradient: linear-gradient(135deg, #38bdf8 0%, #0369a1 100%);
+
+  --color-ai-coach: #a855f7; /* Purple */
+  --color-ai-coach-glow: rgba(168, 85, 247, 0.25);
+  --color-ai-coach-gradient: linear-gradient(135deg, #a855f7 0%, #6366f1 100%);
   
   /* Status/Text Colors */
   --text-primary: #f3f4f6;
@@ -1050,6 +1062,995 @@ body {
 .theme-light .mobile-more-footer {
   border-top: 1px solid rgba(15, 23, 42, 0.08);
 }
+
+/* ═══════════════════════════════════════════════════════════
+   ACHIEVEMENT TOAST NOTIFICATION
+   (migrado desde <style> inline en App.jsx — HIGH-02 fix)
+   ═══════════════════════════════════════════════════════════ */
+
+.achievement-toast-container {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  z-index: 10005;
+  display: flex;
+  align-items: center;
+  gap: 1.15rem;
+  background: var(--bg-surface);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(var(--toast-rgb), 0.35);
+  padding: 1.2rem 1.6rem;
+  border-radius: 16px;
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.4), 0 0 20px rgba(var(--toast-rgb), 0.2);
+  max-width: 380px;
+  cursor: pointer;
+  animation: toast-slide-in 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.achievement-toast-container:hover {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.5), 0 0 30px rgba(var(--toast-rgb), 0.35);
+}
+
+.achievement-toast-container.theme-running {
+  --toast-color: var(--color-running);
+  --toast-rgb: 16, 185, 129;
+}
+
+.achievement-toast-container.theme-gym {
+  --toast-color: var(--color-gym);
+  --toast-rgb: 236, 72, 153;
+}
+
+.achievement-toast-container.theme-primary {
+  --toast-color: var(--color-primary);
+  --toast-rgb: 139, 92, 246;
+}
+
+.toast-glow {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  border-radius: 16px;
+  background: radial-gradient(circle at 10% 20%, rgba(var(--toast-rgb), 0.08) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+.toast-icon-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: rgba(var(--toast-rgb), 0.15);
+  border: 1px solid rgba(var(--toast-rgb), 0.3);
+  color: var(--toast-color);
+  flex-shrink: 0;
+}
+
+.toast-medal-icon {
+  filter: drop-shadow(0 0 4px var(--toast-color));
+}
+
+.toast-text-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.toast-alert-title {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--toast-color);
+  text-transform: uppercase;
+}
+
+.toast-medal-title {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.toast-medal-subtitle {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@keyframes toast-slide-in {
+  from { transform: translateY(80px) scale(0.9); opacity: 0; }
+  to   { transform: translateY(0) scale(1);       opacity: 1; }
+}
+
+@media (max-width: 768px) {
+  .achievement-toast-container {
+    bottom: 1.5rem;
+    right: 1.5rem;
+    left: 1.5rem;
+    max-width: none;
+  }
+}
+
+/* --- PREDICTORS COMPONENT STYLES --- */
+.kpi-acwr-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  width: 100%;
+}
+@media (max-width: 768px) {
+  .kpi-acwr-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+.predictors-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.predictors-header {
+  margin-bottom: 0.5rem;
+}
+
+.text-3xl {
+  font-size: 1.85rem;
+  font-weight: 800;
+}
+
+.text-secondary {
+  color: var(--text-secondary);
+}
+
+.text-sm {
+  font-size: 0.9rem;
+  margin-top: 0.25rem;
+}
+
+.text-xs {
+  font-size: 0.75rem;
+}
+
+.mb-5 { margin-bottom: 1.25rem; }
+.mb-4 { margin-bottom: 1rem; }
+.mb-3 { margin-bottom: 0.75rem; }
+.mt-3 { margin-top: 0.75rem; }
+
+/* Grid structures */
+.grid-panels {
+  display: grid;
+  grid-template-columns: 1fr 1.6fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .grid-panels {
+    grid-template-columns: 1fr;
+  }
+}
+
+.panel-left {
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.panel-right {
+  padding: 1.5rem;
+}
+
+.panel-right-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.panel-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  gap: 0.4rem;
+}
+
+/* Time pickers */
+.time-inputs-group {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.time-separator {
+  font-weight: bold;
+  color: var(--text-muted);
+}
+
+/* Info boxes */
+.calculator-info-box {
+  display: flex;
+  gap: 0.75rem;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-light);
+  padding: 0.75rem;
+  border-radius: 10px;
+}
+
+.calculator-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  text-align: left;
+}
+
+.calculator-table th {
+  color: var(--text-muted);
+  font-weight: 600;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--border-light);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.75rem;
+}
+
+.calculator-table td {
+  padding: 0.85rem 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  color: var(--text-primary);
+  vertical-align: middle;
+}
+
+.calculator-table tr:last-child td {
+  border-bottom: none;
+}
+
+.reference-row {
+  background-color: rgba(16, 185, 129, 0.05);
+}
+
+.center { text-align: center; }
+.right { text-align: right; }
+
+/* Running zones cards */
+.zones-card-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+
+@media (max-width: 600px) {
+  .zones-card-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.zone-card {
+  padding: 0.85rem;
+  background: rgba(255, 255, 255, 0.01);
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  transition: border-color var(--transition-fast);
+}
+
+.zone-card:hover {
+  border-color: rgba(16, 185, 129, 0.25);
+}
+
+.zone-card-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.zone-name {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.zone-pace-range {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--color-running);
+}
+
+.zone-desc {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+
+/* Gym 1RM Output */
+.calculated-1rm-box {
+  padding: 1.25rem;
+  background: rgba(236, 72, 153, 0.04);
+  border: 1px dashed rgba(236, 72, 153, 0.2);
+  border-radius: 12px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.calculated-1rm-box .value {
+  font-size: 2.2rem;
+  line-height: 1;
+  margin: 0.25rem 0;
+}
+
+.calculated-1rm-box .unit {
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+/* Custom Gym weight slider */
+.custom-slider-card {
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.slider-header {
+  display: flex;
+  justify-content: space-between;
+}
+
+.slider-result {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.slider-result strong {
+  font-size: 1.1rem;
+}
+
+.rec-goal-name {
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.rec-goal-desc {
+  margin-top: 0.15rem;
+  line-height: 1.3;
+}
+
+/* Tab switcher local styling */
+.tab-switcher {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.75rem;
+  background-color: rgba(0, 0, 0, 0.2);
+  padding: 0.35rem;
+  border-radius: 12px;
+  border: 1px solid var(--border-light);
+}
+
+@media (max-width: 1024px) {
+  .tab-switcher {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .tab-switcher {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .tab-switcher {
+    grid-template-columns: 1fr;
+  }
+}
+
+.tab-btn {
+  padding: 0.75rem;
+  border: none;
+  background: transparent;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.tab-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.tab-btn.active-run {
+  background: var(--color-running-gradient);
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+.tab-btn.active-gym {
+  background: var(--color-gym-gradient);
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(236, 72, 153, 0.3);
+}
+
+.tab-btn.active-hr {
+  background: var(--color-hr-gradient);
+  color: #ffffff;
+  box-shadow: 0 4px 12px var(--color-hr-glow);
+}
+
+.tab-btn.active-acwr {
+  background: var(--color-acwr-gradient);
+  color: #ffffff;
+  box-shadow: 0 4px 12px var(--color-acwr-glow);
+}
+
+.hr-zones-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.hr-zone-item {
+  background: rgba(255, 255, 255, 0.01);
+  border: 1px solid var(--border-light);
+  border-left-width: 4px;
+  padding: 1rem;
+  border-radius: 12px;
+  transition: all var(--transition-normal);
+}
+
+.hr-zone-item:hover {
+  background: rgba(255, 255, 255, 0.02);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.hr-zone-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.hr-zone-title-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.hr-zone-badge {
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 0.75rem;
+}
+
+.hr-zone-name {
+  font-size: 0.95rem;
+  color: var(--text-primary);
+}
+
+.hr-zone-bpm {
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.hr-zone-details {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  line-height: 1.4;
+}
+
+.hr-zone-benefit {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+/* Custom range slider styling */
+.custom-range-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  background: rgba(255, 255, 255, 0.08);
+  height: 8px;
+  border-radius: 4px;
+  outline: none;
+  transition: background 0.3s;
+}
+
+.custom-range-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--slider-thumb-color, var(--color-gym));
+  cursor: pointer;
+  box-shadow: 0 0 10px var(--slider-thumb-shadow, rgba(236, 72, 153, 0.5));
+  transition: transform var(--transition-fast);
+}
+
+.custom-range-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+/* --- AI Entrenador Virtual por IA Local-Styles --- */
+.tab-btn.active-ai-coach {
+  background: var(--color-ai-coach-gradient) !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 12px var(--color-ai-coach-glow) !important;
+}
+
+.ai-coach-glow-text {
+  color: #a855f7;
+  filter: drop-shadow(0 0 4px rgba(168, 85, 247, 0.5));
+}
+
+/* AI Core Styling */
+.ai-core-visualizer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2.25rem 1.5rem;
+  background: rgba(168, 85, 247, 0.02);
+  border: 1px solid rgba(168, 85, 247, 0.15);
+  border-radius: 16px;
+  margin-bottom: 1.5rem;
+  position: relative;
+  overflow: hidden;
+  text-align: center;
+}
+
+.ai-core-brain {
+  width: 74px;
+  height: 74px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.25) 0%, rgba(99, 102, 241, 0.05) 70%);
+  border: 2px solid rgba(168, 85, 247, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 25px rgba(168, 85, 247, 0.35);
+  position: relative;
+  z-index: 2;
+  margin-bottom: 1rem;
+}
+
+.ai-brain-icon {
+  color: #a855f7;
+  filter: drop-shadow(0 0 8px #a855f7);
+  animation: float-ai-brain 3s ease-in-out infinite;
+}
+
+@keyframes float-ai-brain {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-4px) scale(1.05); }
+}
+
+.ai-core-pulse {
+  position: absolute;
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  border: 1px solid rgba(168, 85, 247, 0.25);
+  animation: core-pulse-animate 3s infinite linear;
+  pointer-events: none;
+  z-index: 1;
+}
+
+@keyframes core-pulse-animate {
+  0% { transform: scale(0.6); opacity: 1; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+.ai-core-status {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  color: #a855f7;
+  text-shadow: 0 0 8px rgba(168, 85, 247, 0.6);
+  margin-bottom: 0.25rem;
+}
+
+.ai-core-telemetry {
+  font-size: 0.65rem;
+  letter-spacing: 0.05em;
+}
+
+/* AI dials section */
+.ai-coach-dials-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1.15rem;
+}
+
+.dial-stat-item {
+  background: rgba(255, 255, 255, 0.015);
+  border: 1px solid var(--border-light);
+  padding: 0.85rem;
+  border-radius: 12px;
+}
+
+.dial-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.dial-label {
+  color: var(--text-secondary);
+}
+
+.dial-bar-track {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 0.35rem;
+}
+
+.dial-bar-fill {
+  height: 100%;
+  border-radius: 10px;
+  transition: width 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.fill-cardio {
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
+}
+
+.fill-strength {
+  box-shadow: 0 0 10px rgba(236, 72, 153, 0.4);
+}
+
+/* AI Prescription Card */
+.ai-prescription-card {
+  padding: 1.75rem !important;
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.04) 0%, rgba(99, 102, 241, 0.01) 100%);
+  border: 1px solid rgba(168, 85, 247, 0.25) !important;
+  box-shadow: 0 8px 32px rgba(168, 85, 247, 0.05), inset 0 0 12px rgba(168, 85, 247, 0.02);
+}
+
+.ai-recommendation-badge {
+  padding: 0.3rem 0.75rem;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  border-radius: 20px;
+  border: 1px solid rgba(168, 85, 247, 0.4);
+  background: rgba(168, 85, 247, 0.12);
+  color: #c084fc;
+  display: inline-block;
+  text-shadow: 0 0 4px rgba(168, 85, 247, 0.3);
+}
+
+.ai-science-alert {
+  background: rgba(255, 255, 255, 0.015);
+  border: 1px solid var(--border-light);
+  padding: 0.85rem;
+  border-radius: 10px;
+  position: relative;
+  overflow: hidden;
+  margin-top: 1rem;
+}
+
+.alert-glow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 3px;
+  height: 100%;
+  background: #a855f7;
+  box-shadow: 0 0 8px #a855f7;
+}
+
+/* Muscle state cards */
+.muscle-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+
+@media (max-width: 600px) {
+  .muscle-status-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.muscle-status-card {
+  background: rgba(255, 255, 255, 0.015);
+  border: 1px solid var(--border-light);
+  padding: 0.85rem;
+  border-radius: 10px;
+  transition: transform var(--transition-fast);
+}
+
+.muscle-status-card:hover {
+  transform: translateY(-2px);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.muscle-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.muscle-name {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.muscle-desc {
+  color: var(--text-secondary);
+  line-height: 1.35;
+}
+
+/* --- ANALIZADOR RIEGEL-COOPER ELITE STYLES --- */
+.physiological-realism-card {
+  padding: 1.75rem !important;
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.04) 0%, rgba(6, 182, 212, 0.01) 100%);
+  border: 1px solid rgba(139, 92, 246, 0.25) !important;
+  box-shadow: 0 8px 32px rgba(139, 92, 246, 0.05), inset 0 0 12px rgba(139, 92, 246, 0.02);
+  transition: transform var(--transition-normal), border-color var(--transition-normal);
+}
+
+.physiological-realism-card:hover {
+  border-color: rgba(139, 92, 246, 0.4) !important;
+  box-shadow: 0 12px 40px rgba(139, 92, 246, 0.08), inset 0 0 16px rgba(139, 92, 246, 0.04);
+}
+
+.bg-purple-glow {
+  border: 1px solid rgba(139, 92, 246, 0.4) !important;
+  background: rgba(139, 92, 246, 0.12) !important;
+  color: #c084fc !important;
+  text-shadow: 0 0 4px rgba(139, 92, 246, 0.3);
+}
+
+.bg-green-glow {
+  border: 1px solid rgba(16, 185, 129, 0.4) !important;
+  background: rgba(16, 185, 129, 0.12) !important;
+  color: #34d399 !important;
+  text-shadow: 0 0 4px rgba(16, 185, 129, 0.3);
+}
+
+.exponent-comparison-container {
+  background: rgba(255, 255, 255, 0.015);
+  border: 1px solid var(--border-light);
+  padding: 1rem;
+  border-radius: 12px;
+}
+
+.comparison-bar-track {
+  width: 100%;
+  height: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  position: relative;
+  overflow: hidden;
+}
+
+.comparison-bar-fill-base {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: 40%;
+  background: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+  border-radius: 10px 0 0 10px;
+  z-index: 1;
+}
+
+.comparison-bar-fill-custom {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  background: linear-gradient(90deg, #8b5cf6 0%, #a855f7 100%);
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.6);
+  border-radius: 10px;
+  z-index: 2;
+  transition: width 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.telemetry-bars-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+}
+
+@media (max-width: 600px) {
+  .telemetry-bars-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.telemetry-bar-item {
+  background: rgba(255, 255, 255, 0.01);
+  border: 1px solid var(--border-light);
+  padding: 0.75rem;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+/* --- Jack Daniels VDOT Dial & Scale --- */
+.vdot-dial-box {
+  padding: 1.25rem;
+  background: rgba(16, 185, 129, 0.03);
+  border: 1px solid rgba(16, 185, 129, 0.15);
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.vdot-dial-circle {
+  position: relative;
+  width: 140px;
+  height: 140px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vdot-svg {
+  transform: rotate(-90deg);
+  width: 100%;
+  height: 100%;
+}
+
+.vdot-track {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.05);
+  stroke-width: 8;
+}
+
+.vdot-indicator {
+  fill: none;
+  stroke: url(#vdotGrad);
+  stroke-width: 8;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 1s ease-out;
+}
+
+.vdot-dial-value-container {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.vdot-dial-label {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.1rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.vdot-dial-value {
+  font-size: 2.2rem;
+  line-height: 1;
+  margin: 0.15rem 0;
+  color: var(--color-running);
+  text-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
+}
+
+.vdot-dial-unit {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+}
+
+.vdot-elite-scale {
+  width: 100%;
+}
+
+/* --- DYNAMIC STRENGTH & FITNESS INTEL ADDITIONS --- */
+.gym-exercise-selector {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.gym-pill-btn {
+  padding: 0.4rem 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.01);
+  color: var(--text-secondary);
+  font-weight: 700;
+  font-size: 0.78rem;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.gym-pill-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.gym-pill-btn.active-bench {
+  background: rgba(236, 72, 153, 0.12) !important;
+  border-color: rgba(236, 72, 153, 0.4) !important;
+  color: #f472b6 !important;
+  box-shadow: 0 0 10px rgba(236, 72, 153, 0.15);
+}
+
+.gym-pill-btn.active-squat {
+  background: rgba(16, 185, 129, 0.12) !important;
+  border-color: rgba(16, 185, 129, 0.4) !important;
+  color: #34d399 !important;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.15);
+}
+
+.gym-pill-btn.active-deadlift {
+  background: rgba(59, 130, 246, 0.12) !important;
+  border-color: rgba(59, 130, 246, 0.4) !important;
+  color: #60a5fa !important;
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.15);
+}
+
+.bg-gym-badge {
+  border: 1px solid rgba(236, 72, 153, 0.3) !important;
+  background: rgba(236, 72, 153, 0.1) !important;
+  color: #f472b6 !important;
+}
+
+.gym-tooltip-card, .fitness-tooltip-card {
+  animation: tooltip-scale 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes tooltip-scale {
+  0% { transform: translate(-50%, -85%) scale(0.9); opacity: 0; }
+  100% { transform: translate(-50%, -100%) scale(1); opacity: 1; }
+}
+
+@media (max-width: 768px) {
+  .tsb-grid-mobile {
+    grid-template-columns: 1fr !important;
+  }
+}
+
 
 
 

@@ -116,7 +116,23 @@ export default function AnalyticsView({ workouts, theme }) {
   });
 
   const gymVolumes = gymWorkouts.map(w => {
-    return w.exercises?.reduce((sum, ex) => sum + (ex.sets * ex.reps * ex.weight), 0) || 0;
+    return w.exercises?.reduce((sum, ex) => {
+      if (Array.isArray(ex.sets)) {
+        return sum + ex.sets.reduce((exSum, s) => {
+          if (s.done !== false) {
+            const weightVal = parseFloat(s.weight) || 0;
+            const repsVal = parseFloat(s.reps) || 0;
+            return exSum + (weightVal * repsVal);
+          }
+          return exSum;
+        }, 0);
+      } else {
+        const setsVal = Number(ex.sets) || 0;
+        const repsVal = Number(ex.reps) || 0;
+        const weightVal = Number(ex.weight) || 0;
+        return sum + (setsVal * repsVal * weightVal);
+      }
+    }, 0) || 0;
   });
 
   const gymVolumeData = {
@@ -161,21 +177,46 @@ export default function AnalyticsView({ workouts, theme }) {
     const counts = {
       Pectoral: 0,
       Espalda: 0,
-      Pierna: 0,
       Hombros: 0,
-      Brazos: 0,
+      Bíceps: 0,
+      Tríceps: 0,
+      Antebrazo: 0,
       Core: 0,
+      Cuádriceps: 0,
+      Isquiotibiales: 0,
+      Gemelos: 0,
+      Glúteos: 0,
+      Cuello: 0,
+      // Legacy groups for backwards compatibility
+      Pierna: 0,
+      Brazos: 0,
       'Full Body': 0
     };
 
     workouts.forEach(w => {
       if (w.type === 'gym') {
-        const group = w.muscleGroup || 'Full Body';
-        const totalSets = w.exercises?.reduce((sum, ex) => sum + (Number(ex.sets) || 0), 0) || 0;
-        if (counts[group] !== undefined) {
-          counts[group] += totalSets;
+        const totalSets = w.exercises?.reduce((sum, ex) => {
+          if (Array.isArray(ex.sets)) {
+            return sum + ex.sets.length;
+          }
+          return sum + (Number(ex.sets) || 0);
+        }, 0) || 0;
+
+        if (w.trainedMuscles && w.trainedMuscles.length > 0) {
+          w.trainedMuscles.forEach(m => {
+            if (counts[m] !== undefined) {
+              counts[m] += totalSets;
+            } else {
+              counts[m] = totalSets;
+            }
+          });
         } else {
-          counts[group] = totalSets;
+          const group = w.muscleGroup || 'Full Body';
+          if (counts[group] !== undefined) {
+            counts[group] += totalSets;
+          } else {
+            counts[group] = totalSets;
+          }
         }
       }
     });
@@ -187,22 +228,33 @@ export default function AnalyticsView({ workouts, theme }) {
   const muscleLabels = Object.keys(muscleCounts).filter(k => muscleCounts[k] > 0);
   const muscleValues = muscleLabels.map(k => muscleCounts[k]);
 
-  const muscleColors = [
-    'rgba(236, 72, 153, 0.65)',  // Pectoral (Pink)
-    'rgba(59, 130, 246, 0.65)',  // Espalda (Blue)
-    'rgba(16, 185, 129, 0.65)',  // Pierna (Green)
-    'rgba(245, 158, 11, 0.65)',  // Hombros (Orange)
-    'rgba(139, 92, 246, 0.65)',  // Brazos (Violet)
-    'rgba(239, 68, 68, 0.65)',    // Core (Red)
-    'rgba(107, 114, 128, 0.65)'   // Full Body (Gray)
-  ];
+  const muscleColorsMap = {
+    Pectoral: 'rgba(244, 63, 94, 0.7)',        // Rose/Neon Red-Pink
+    Espalda: 'rgba(59, 130, 246, 0.7)',         // Blue
+    Hombros: 'rgba(245, 158, 11, 0.7)',         // Orange
+    Bíceps: 'rgba(168, 85, 247, 0.7)',          // Purple
+    Tríceps: 'rgba(236, 72, 153, 0.7)',         // Pink
+    Antebrazo: 'rgba(139, 92, 246, 0.7)',        // Violet
+    Core: 'rgba(239, 68, 68, 0.7)',             // Red
+    Cuádriceps: 'rgba(16, 185, 129, 0.7)',      // Emerald Green
+    Isquiotibiales: 'rgba(20, 184, 166, 0.7)',  // Teal
+    Gemelos: 'rgba(45, 212, 191, 0.7)',         // Light Teal/Cyan
+    Glúteos: 'rgba(251, 113, 133, 0.7)',        // Light Rose
+    Cuello: 'rgba(251, 191, 36, 0.7)',          // Amber/Yellow
+    // Legacy mapping support
+    Pierna: 'rgba(5, 150, 105, 0.7)',           // Dark Green
+    Brazos: 'rgba(124, 58, 237, 0.7)',          // Dark Violet
+    'Full Body': 'rgba(107, 114, 128, 0.7)'     // Gray
+  };
+
+  const muscleColors = muscleLabels.map(label => muscleColorsMap[label] || 'rgba(156, 163, 175, 0.7)');
 
   const muscleDoughnutData = {
     labels: muscleLabels,
     datasets: [
       {
         data: muscleValues,
-        backgroundColor: muscleColors.slice(0, muscleLabels.length),
+        backgroundColor: muscleColors,
         borderColor: doughnutBorderColor,
         borderWidth: 1.5,
         hoverOffset: 4,
@@ -265,21 +317,47 @@ export default function AnalyticsView({ workouts, theme }) {
             );
             
             if (matchesKeyword) {
-              const oneRepMax = calculate1RM(ex.weight, ex.reps);
-              if (oneRepMax > 0) {
-                if (!bestRecord || oneRepMax > bestRecord.oneRepMax) {
-                  bestRecord = {
-                    exerciseName: ex.name,
-                    oneRepMax: Math.round(oneRepMax * 10) / 10,
-                    weight: ex.weight,
-                    reps: ex.reps,
-                    rpe: ex.rpe,
-                    date: new Date(w.date + 'T00:00:00').toLocaleDateString('es-ES', { 
-                      day: 'numeric', 
-                      month: 'short', 
-                      year: 'numeric' 
-                    })
-                  };
+              if (Array.isArray(ex.sets)) {
+                ex.sets.forEach(s => {
+                  if (s.done !== false) {
+                    const weightVal = parseFloat(s.weight) || 0;
+                    const repsVal = parseFloat(s.reps) || 0;
+                    const oneRepMax = calculate1RM(weightVal, repsVal, s.rpe || ex.rpe);
+                    if (oneRepMax > 0) {
+                      if (!bestRecord || oneRepMax > bestRecord.oneRepMax) {
+                        bestRecord = {
+                          exerciseName: ex.name,
+                          oneRepMax: Math.round(oneRepMax * 10) / 10,
+                          weight: weightVal,
+                          reps: repsVal,
+                          rpe: s.rpe || ex.rpe,
+                          date: new Date(w.date + 'T00:00:00').toLocaleDateString('es-ES', { 
+                            day: 'numeric', 
+                            month: 'short', 
+                            year: 'numeric' 
+                          })
+                        };
+                      }
+                    }
+                  }
+                });
+              } else {
+                const oneRepMax = calculate1RM(ex.weight, ex.reps, ex.rpe || w.rpe);
+                if (oneRepMax > 0) {
+                  if (!bestRecord || oneRepMax > bestRecord.oneRepMax) {
+                    bestRecord = {
+                      exerciseName: ex.name,
+                      oneRepMax: Math.round(oneRepMax * 10) / 10,
+                      weight: ex.weight,
+                      reps: ex.reps,
+                      rpe: ex.rpe || w.rpe,
+                      date: new Date(w.date + 'T00:00:00').toLocaleDateString('es-ES', { 
+                        day: 'numeric', 
+                        month: 'short', 
+                        year: 'numeric' 
+                      })
+                    };
+                  }
                 }
               }
             }
@@ -349,11 +427,26 @@ export default function AnalyticsView({ workouts, theme }) {
       .forEach(w => {
         const matchingEx = w.exercises.find(ex => ex.name.trim() === selectedExercise);
         if (matchingEx) {
-          const oneRepMax = calculate1RM(matchingEx.weight, matchingEx.reps);
-          points.push({
-            date: new Date(w.date + 'T00:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }),
-            oneRepMax: Math.round(oneRepMax * 10) / 10
-          });
+          let oneRepMax = 0;
+          if (Array.isArray(matchingEx.sets)) {
+            matchingEx.sets.forEach(s => {
+              if (s.done !== false) {
+                const calculated1RM = calculate1RM(parseFloat(s.weight) || 0, parseFloat(s.reps) || 0, s.rpe || matchingEx.rpe);
+                if (calculated1RM > oneRepMax) {
+                  oneRepMax = calculated1RM;
+                }
+              }
+            });
+          } else {
+            oneRepMax = calculate1RM(matchingEx.weight, matchingEx.reps, matchingEx.rpe || w.rpe);
+          }
+          
+          if (oneRepMax > 0) {
+            points.push({
+              date: new Date(w.date + 'T00:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }),
+              oneRepMax: Math.round(oneRepMax * 10) / 10
+            });
+          }
         }
       });
 

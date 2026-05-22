@@ -176,7 +176,6 @@ export const MOCK_WORKOUTS = [
       { splitNumber: 12, distance: 1000, time: "05:10" }
     ]
   },
-
   // --- GYM WORKOUTS (Sobrecarga progresiva y variedad de volumen) ---
   {
     id: "gym-1",
@@ -184,13 +183,14 @@ export const MOCK_WORKOUTS = [
     date: getPastDateString(56),
     sessionName: "Empuje A (Pecho/Tríceps)",
     muscleGroup: "Pectoral",
+    trainedMuscles: ["Pectoral", "Tríceps"],
     exercises: [
       { name: "Press de Banca Plano", sets: 4, reps: 10, weight: 60, rpe: 8 },
       { name: "Press Inclinado con Mancuernas", sets: 3, reps: 12, weight: 20, rpe: 7 },
       { name: "Fondos de Pecho", sets: 3, reps: 8, weight: 0, rpe: 8 },
       { name: "Copas de Tríceps", sets: 3, reps: 12, weight: 14, rpe: 7 }
     ],
-    notes: "Adaptación. Fuerza base estable."
+    notes: "Adaptación. Fuerza base stable."
   },
   {
     id: "gym-2",
@@ -198,6 +198,7 @@ export const MOCK_WORKOUTS = [
     date: getPastDateString(53),
     sessionName: "Tirón A (Espalda/Bíceps)",
     muscleGroup: "Espalda",
+    trainedMuscles: ["Espalda", "Bíceps"],
     exercises: [
       { name: "Peso Muerto Convencional", sets: 4, reps: 8, weight: 80, rpe: 8 },
       { name: "Jalón al Pecho", sets: 3, reps: 10, weight: 50, rpe: 7 },
@@ -211,7 +212,8 @@ export const MOCK_WORKOUTS = [
     type: "gym",
     date: getPastDateString(51),
     sessionName: "Fuerza Piernas (Sentadillas)",
-    muscleGroup: "Pierna",
+    muscleGroup: "Cuádriceps",
+    trainedMuscles: ["Cuádriceps", "Isquiotibiales", "Gemelos"],
     exercises: [
       { name: "Sentadilla Libre Trasera", sets: 4, reps: 8, weight: 70, rpe: 8 },
       { name: "Prensa de Piernas 45°", sets: 3, reps: 10, weight: 120, rpe: 7 },
@@ -226,6 +228,7 @@ export const MOCK_WORKOUTS = [
     date: getPastDateString(46),
     sessionName: "Empuje A (Aumento de Peso)",
     muscleGroup: "Pectoral",
+    trainedMuscles: ["Pectoral", "Tríceps"],
     exercises: [
       { name: "Press de Banca Plano", sets: 4, reps: 10, weight: 65, rpe: 8 }, // +5kg
       { name: "Press Inclinado con Mancuernas", sets: 3, reps: 10, weight: 22, rpe: 8 },
@@ -240,6 +243,7 @@ export const MOCK_WORKOUTS = [
     date: getPastDateString(42),
     sessionName: "Tirón A (Progreso Peso Muerto)",
     muscleGroup: "Espalda",
+    trainedMuscles: ["Espalda", "Bíceps"],
     exercises: [
       { name: "Peso Muerto Convencional", sets: 4, reps: 8, weight: 90, rpe: 8 }, // +10kg
       { name: "Jalón al Pecho", sets: 3, reps: 10, weight: 55, rpe: 7 },
@@ -254,6 +258,7 @@ export const MOCK_WORKOUTS = [
     date: getPastDateString(38),
     sessionName: "Hombros y Core",
     muscleGroup: "Hombros",
+    trainedMuscles: ["Hombros", "Core"],
     exercises: [
       { name: "Press Militar de Hombros", sets: 4, reps: 8, weight: 35, rpe: 8 },
       { name: "Vuelos Laterales", sets: 4, reps: 12, weight: 8, rpe: 7 },
@@ -267,7 +272,8 @@ export const MOCK_WORKOUTS = [
     type: "gym",
     date: getPastDateString(32),
     sessionName: "Sentadillas Progresión",
-    muscleGroup: "Pierna",
+    muscleGroup: "Cuádriceps",
+    trainedMuscles: ["Cuádriceps", "Isquiotibiales", "Glúteos"],
     exercises: [
       { name: "Sentadilla Libre Trasera", sets: 4, reps: 8, weight: 80, rpe: 8 }, // +10kg
       { name: "Prensa de Piernas 45°", sets: 3, reps: 10, weight: 140, rpe: 8 },
@@ -282,6 +288,7 @@ export const MOCK_WORKOUTS = [
     date: getPastDateString(28),
     sessionName: "Empuje A (Carga Alta)",
     muscleGroup: "Pectoral",
+    trainedMuscles: ["Pectoral", "Tríceps"],
     exercises: [
       { name: "Press de Banca Plano", sets: 4, reps: 8, weight: 70, rpe: 9 }, // +5kg, bajamos reps a 8
       { name: "Press Inclinado con Mancuernas", sets: 3, reps: 10, weight: 24, rpe: 8 },
@@ -296,6 +303,7 @@ export const MOCK_WORKOUTS = [
     date: getPastDateString(22),
     sessionName: "Tirón A (Carga Alta)",
     muscleGroup: "Espalda",
+    trainedMuscles: ["Espalda", "Bíceps"],
     exercises: [
       { name: "Peso Muerto Convencional", sets: 3, reps: 5, weight: 100, rpe: 9 }, // Hito 100kg!
       { name: "Remo con Barra", sets: 4, reps: 8, weight: 55, rpe: 8 },
@@ -309,7 +317,8 @@ export const MOCK_WORKOUTS = [
     type: "gym",
     date: getPastDateString(18),
     sessionName: "Piernas Volumen Alto",
-    muscleGroup: "Pierna",
+    muscleGroup: "Cuádriceps",
+    trainedMuscles: ["Cuádriceps", "Glúteos", "Gemelos"],
     exercises: [
       { name: "Sentadilla Libre Trasera", sets: 4, reps: 6, weight: 90, rpe: 9 }, // +10kg
       { name: "Prensa de Piernas 45°", sets: 3, reps: 10, weight: 160, rpe: 8 },
@@ -324,6 +333,7 @@ export const MOCK_WORKOUTS = [
     date: getPastDateString(12),
     sessionName: "Empuje A (Fuerza Máxima)",
     muscleGroup: "Pectoral",
+    trainedMuscles: ["Pectoral", "Tríceps"],
     exercises: [
       { name: "Press de Banca Plano", sets: 4, reps: 6, weight: 75, rpe: 9 }, // +5kg
       { name: "Press Inclinado con Mancuernas", sets: 3, reps: 8, weight: 26, rpe: 8 },
@@ -338,6 +348,7 @@ export const MOCK_WORKOUTS = [
     date: getPastDateString(8),
     sessionName: "Tirón A (Fuerza Espalda)",
     muscleGroup: "Espalda",
+    trainedMuscles: ["Espalda", "Bíceps"],
     exercises: [
       { name: "Peso Muerto Convencional", sets: 3, reps: 5, weight: 110, rpe: 9 }, // Progresión a 110kg
       { name: "Remo con Barra", sets: 4, reps: 8, weight: 60, rpe: 8 },
@@ -352,6 +363,7 @@ export const MOCK_WORKOUTS = [
     date: getPastDateString(3),
     sessionName: "Pectoral & Brazos Premium",
     muscleGroup: "Pectoral",
+    trainedMuscles: ["Pectoral", "Bíceps", "Tríceps"],
     exercises: [
       { name: "Press de Banca Plano", sets: 4, reps: 5, weight: 80, rpe: 9 }, // ¡Llegamos a 80kg!
       { name: "Press Inclinado con Mancuernas", sets: 3, reps: 8, weight: 28, rpe: 8 },

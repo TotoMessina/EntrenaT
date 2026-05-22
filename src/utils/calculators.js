@@ -299,11 +299,11 @@ export const calculateRecordBasedExponent = (workouts = []) => {
  * Calcula el exponente de Riegel-Cooper clásico residual (mantenido para retrocompatibilidad estructural)
  */
 export const calculateRunningExponent = (profile = {}, workouts = []) => {
-  const age = Number(profile.age) || Number(localStorage.getItem('fitanalytics_age')) || 25;
-  const weight = Number(profile.weight) || Number(localStorage.getItem('fitanalytics_profile_weight')) || 75;
-  const height = Number(profile.height) || Number(localStorage.getItem('fitanalytics_profile_height')) || 175;
-  const restingHR = Number(profile.restingHR) || Number(localStorage.getItem('fitanalytics_profile_resting_hr')) || 60;
-  const gender = profile.gender || localStorage.getItem('fitanalytics_profile_gender') || 'male';
+  const age       = Number(profile?.age)       || 25;
+  const weight    = Number(profile?.weight)    || 75;
+  const height    = Number(profile?.height)    || 175;
+  const restingHR = Number(profile?.restingHR) || 60;
+  const gender    = profile?.gender            || 'male';
 
   const today = new Date();
   today.setHours(23, 59, 59, 999);
@@ -346,11 +346,11 @@ export const calculateRunningExponent = (profile = {}, workouts = []) => {
  * el VDOT de Referencia y el factor de decaimiento aeróbico real.
  */
 export const getRunningExponentDetails = (profile = {}, workouts = []) => {
-  const age = Number(profile.age) || Number(localStorage.getItem('fitanalytics_age')) || 25;
-  const weight = Number(profile.weight) || Number(localStorage.getItem('fitanalytics_profile_weight')) || 75;
-  const height = Number(profile.height) || Number(localStorage.getItem('fitanalytics_profile_height')) || 175;
-  const restingHR = Number(profile.restingHR) || Number(localStorage.getItem('fitanalytics_profile_resting_hr')) || 60;
-  const gender = profile.gender || localStorage.getItem('fitanalytics_profile_gender') || 'male';
+  const age       = Number(profile?.age)       || 25;
+  const weight    = Number(profile?.weight)    || 75;
+  const height    = Number(profile?.height)    || 175;
+  const restingHR = Number(profile?.restingHR) || 60;
+  const gender    = profile?.gender            || 'male';
 
   const today = new Date();
   today.setHours(23, 59, 59, 999);
@@ -523,7 +523,7 @@ export const getRunningPaceZones = (d1, timeStr, profile = {}, workouts = []) =>
   const t1 = timeStringToSeconds(timeStr);
   if (d1 <= 0 || t1 <= 0) return [];
   
-  const age = Number(profile.age) || Number(localStorage.getItem('fitanalytics_age')) || 25;
+  const age = Number(profile?.age) || 25;
   const maxHR = Math.round(208 - 0.7 * age);
   
   const T1 = t1 / 60;
@@ -594,14 +594,97 @@ export const getRunningPaceZones = (d1, timeStr, profile = {}, workouts = []) =>
 // --- GIMNASIO: 1RM Y PESOS RECOMENDADOS ---
 
 /**
- * Fórmula de Epley: 1RM = w * (1 + r / 30)
+ * Fórmula de 1RM Refinada: Combina Epley y Brzycki e incorpora RPE (Repeticiones en Reserva)
  * w: peso levantado
- * r: repeticiones
+ * r: repeticiones logradas
+ * rpe: escala de esfuerzo percibido (Borg de 1 a 10)
  */
-export const calculate1RM = (weight, reps) => {
+export const calculate1RM = (weight, reps, rpe) => {
   if (!weight || !reps) return 0;
-  if (Number(reps) === 1) return Number(weight);
-  return weight * (1 + reps / 30);
+  
+  const w = parseFloat(weight);
+  const r = parseFloat(reps);
+  if (w <= 0 || r <= 0) return 0;
+  
+  // Calcular Repeticiones en Reserva (RIR) si hay un RPE válido
+  let rEff = r;
+  if (rpe !== undefined && rpe !== null && rpe !== '') {
+    const rpeNum = parseFloat(rpe);
+    if (rpeNum >= 1 && rpeNum <= 10) {
+      const rir = 10 - rpeNum;
+      rEff = r + rir;
+    }
+  }
+  
+  // Si al fallo técnico teórico se calcula exactamente 1 repetición, el peso es el 1RM
+  if (rEff === 1) return w;
+  
+  // Fórmula de Epley: 1RM = w * (1 + rEff / 30)
+  const epley = w * (1 + rEff / 30);
+  
+  // Fórmula de Brzycki: 1RM = w / (1.0278 - 0.0278 * rEff)
+  // Válida principalmente para rEff <= 10 reps.
+  if (rEff <= 10) {
+    const brzycki = w / (1.0278 - 0.0278 * rEff);
+    // Promediamos ambas fórmulas para precisión quirúrgica
+    return Math.round(((epley + brzycki) / 2) * 10) / 10;
+  }
+  
+  return Math.round(epley * 10) / 10;
+};
+
+/**
+ * Genera el perfil de Fuerza-Velocidad y Curva de Potencia para repeticiones de 1 a 12
+ * basado en el 1RM teórico estimado.
+ */
+export const getForceVelocityProfile = (oneRepMax) => {
+  if (!oneRepMax || oneRepMax <= 0) return [];
+  
+  // Mapeo estándar de repeticiones a porcentaje de 1RM
+  // Basado en tablas de intensidad neuromuscular clásicas
+  const repPctMap = {
+    1: 1.00,
+    2: 0.95,
+    3: 0.90,
+    4: 0.86,
+    5: 0.82,
+    6: 0.78,
+    7: 0.74,
+    8: 0.70,
+    9: 0.67,
+    10: 0.64,
+    11: 0.62,
+    12: 0.60
+  };
+  
+  return Object.keys(repPctMap).map(repStr => {
+    const reps = parseInt(repStr);
+    const pct = repPctMap[reps];
+    const weight = Math.round((oneRepMax * pct) * 10) / 10;
+    
+    // Velocidad Media Propulsiva (MPV en m/s) estimada por el porcentaje del 1RM
+    // Modelo clásico de González-Badillo & Sánchez-Medina (2010)
+    // MPV decrece de forma lineal/logarítmica a medida que nos acercamos al 100% (1RM)
+    const mpv = parseFloat((1.25 - 0.0115 * (pct * 100)).toFixed(2));
+    
+    // Potencia Mecánica Relativa (Watts teóricos) = Fuerza (Newtons) * Velocidad (m/s)
+    // Fuerza = masa * gravedad (9.81 m/s^2)
+    const forceNewtons = weight * 9.81;
+    const powerWatts = Math.round(forceNewtons * mpv);
+    
+    // Zona de Pico de Potencia: típicamente se da en cargas de 45% a 65% del 1RM
+    // En términos de reps, esto corresponde al rango de 10-12 repeticiones a máxima velocidad voluntaria
+    const isPeakPowerZone = pct >= 0.45 && pct <= 0.65;
+    
+    return {
+      reps,
+      pct: Math.round(pct * 100),
+      weight,
+      mpv,
+      powerWatts,
+      isPeakPowerZone
+    };
+  });
 };
 
 /**
@@ -1120,8 +1203,8 @@ export const calculateDecayedHistoricalRunningMetrics = (workouts = [], profile 
     return secs > 0 && Number(w.distance) > 0;
   });
 
-  const restingHR = Number(profile.restingHR) || Number(localStorage.getItem('fitanalytics_profile_resting_hr')) || 60;
-  const age = Number(profile.age) || Number(localStorage.getItem('fitanalytics_age')) || 25;
+  const restingHR = Number(profile?.restingHR) || 60;
+  const age       = Number(profile?.age)       || 25;
   const maxHR = Math.round(208 - 0.7 * age);
 
   const lambda = Math.log(2) / 30; // 30 days half-life
@@ -1245,5 +1328,211 @@ export const calculateDecayedHistoricalRunningMetrics = (workouts = [], profile 
     hasHRData
   };
 };
+
+/**
+ * Calcula la serie temporal de 30 días para el Índice de Carga Aguda:Crónica (ACWR)
+ * del atleta, basándose en la suma de las cargas de trabajo de running y gimnasio.
+ */
+export const calculateACWRData = (workouts = []) => {
+  const today = new Date();
+  today.setHours(23, 59, 59, 999);
+
+  // Generar lista de días para los últimos 60 días (para tener datos crónicos al principio del gráfico)
+  const timelineDays = 60;
+  const dailyLoads = {};
+
+  // Inicializar los últimos 60 días con carga 0
+  for (let i = timelineDays; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    const dateStr = d.toISOString().split('T')[0];
+    dailyLoads[dateStr] = {
+      date: dateStr,
+      runningLoad: 0,
+      gymLoad: 0,
+      totalLoad: 0,
+      runningDetails: [],
+      gymDetails: []
+    };
+  }
+
+  // Calcular carga de cada entrenamiento y acumularla por fecha
+  // (usa timeStringToSeconds, exportada al tope de este archivo — BUG-02 fix)
+  (workouts || []).forEach(w => {
+    if (!w.date) return;
+    const dateStr = w.date;
+    
+    // Si el entrenamiento cae fuera de nuestro rango de 60 días, lo ignoramos para optimizar
+    if (!dailyLoads[dateStr]) return;
+
+    if (w.type === 'running') {
+      const dist = Number(w.distance) || 0;
+      const secs = timeStringToSeconds(w.duration);
+      const rpe = w.rpe !== undefined && w.rpe !== null && w.rpe !== '' ? Number(w.rpe) : 6;
+      
+      if (dist > 0 && secs > 0) {
+        // Pace in s/km = secs / dist
+        // Workload = dist * (300 / pace) * 10 * (rpe / 6)
+        // Simplificado: dist * (300 * dist / secs) * 10 * (rpe / 6) = 3000 * dist^2 / secs * (rpe / 6)
+        const workload = (3000 * dist * dist / secs) * (rpe / 6);
+        const roundedWorkload = Math.round(workload * 10) / 10;
+        
+        dailyLoads[dateStr].runningLoad += roundedWorkload;
+        dailyLoads[dateStr].totalLoad += roundedWorkload;
+        dailyLoads[dateStr].runningDetails.push({
+          id: w.id,
+          distance: dist,
+          duration: w.duration,
+          rpe,
+          workload: roundedWorkload
+        });
+      }
+    } else if (w.type === 'gym') {
+      // Calcular volumen
+      let volume = 0;
+      let rpeSum = 0;
+      let rpeCount = 0;
+
+      if (Array.isArray(w.exercises)) {
+        w.exercises.forEach(ex => {
+          if (Array.isArray(ex.sets)) {
+            ex.sets.forEach(s => {
+              if (s.done !== false) {
+                const weight = parseFloat(s.weight) || 0;
+                const reps = parseFloat(s.reps) || 0;
+                const rpe = s.rpe;
+                if (weight > 0 && reps > 0) {
+                  volume += weight * reps;
+                  if (rpe !== undefined && rpe !== null && rpe !== '') {
+                    rpeSum += parseFloat(rpe);
+                    rpeCount++;
+                  }
+                }
+              }
+            });
+          } else {
+            const weight = Number(ex.weight) || 0;
+            const reps = Number(ex.reps) || 0;
+            const rpe = ex.rpe;
+            if (weight > 0 && reps > 0) {
+              const sets = Number(ex.sets) || 1;
+              volume += weight * reps * sets;
+              if (rpe !== undefined && rpe !== null && rpe !== '') {
+                rpeSum += parseFloat(rpe);
+                rpeCount++;
+              }
+            }
+          }
+        });
+      }
+
+      // RPE promedio de la sesión
+      let sessionRpe = w.rpe !== undefined && w.rpe !== null && w.rpe !== '' ? parseFloat(w.rpe) : null;
+      if (sessionRpe === null) {
+        sessionRpe = rpeCount > 0 ? (rpeSum / rpeCount) : 7;
+      }
+
+      // Gym Workload = Volume / 100 * (rpe / 6)
+      const workload = (volume / 100) * (sessionRpe / 6);
+      const roundedWorkload = Math.round(workload * 10) / 10;
+
+      dailyLoads[dateStr].gymLoad += roundedWorkload;
+      dailyLoads[dateStr].totalLoad += roundedWorkload;
+      dailyLoads[dateStr].gymDetails.push({
+        id: w.id,
+        volume,
+        rpe: sessionRpe,
+        workload: roundedWorkload
+      });
+    }
+  });
+
+  // Convertir el mapa a un array ordenado
+  const sortedDates = Object.keys(dailyLoads).sort();
+  const sortedData = sortedDates.map(d => dailyLoads[d]);
+
+  // Calcular la ventana deslizante
+  // Agudo: 7 días (día actual y 6 anteriores)
+  // Crónico: 28 días (día actual y 27 anteriores)
+  const timeline = [];
+
+  for (let i = 28; i < sortedData.length; i++) {
+    const currentDayData = sortedData[i];
+    
+    // Promedio agudo (7 días)
+    let acuteSum = 0;
+    for (let j = 0; j < 7; j++) {
+      acuteSum += sortedData[i - j].totalLoad;
+    }
+    const acuteLoad = acuteSum / 7;
+
+    // Promedio crónico (28 días)
+    let chronicSum = 0;
+    for (let j = 0; j < 28; j++) {
+      chronicSum += sortedData[i - j].totalLoad;
+    }
+    const chronicLoad = chronicSum / 28;
+
+    const acwr = chronicLoad > 0 ? (acuteLoad / chronicLoad) : 0;
+
+    timeline.push({
+      date: currentDayData.date,
+      workload: Math.round(currentDayData.totalLoad * 10) / 10,
+      runningLoad: Math.round(currentDayData.runningLoad * 10) / 10,
+      gymLoad: Math.round(currentDayData.gymLoad * 10) / 10,
+      acute: Math.round(acuteLoad * 10) / 10,
+      chronic: Math.round(chronicLoad * 10) / 10,
+      acwr: Math.round(acwr * 100) / 100,
+      runningDetails: currentDayData.runningDetails,
+      gymDetails: currentDayData.gymDetails
+    });
+  }
+
+  // Filtrar los últimos 30 días para el gráfico
+  const plotTimeline = timeline.slice(-30);
+  const current = plotTimeline.length > 0 
+    ? plotTimeline[plotTimeline.length - 1] 
+    : { acute: 0, chronic: 0, acwr: 1.0, date: today.toISOString().split('T')[0] };
+
+  // Calcular ACWRs separados para running y gimnasio (HIGH-05)
+  // Permiten al AI Coach distinguir fatiga cardiovascular vs muscular sin re-calcular.
+  let runningAcuteSum = 0, runningChronicSum = 0;
+  let gymAcuteSum    = 0, gymChronicSum    = 0;
+  const lastIdx = sortedData.length - 1;
+
+  if (sortedData.length >= 28) {
+    for (let j = 0; j < 7;  j++) { runningAcuteSum   += sortedData[lastIdx - j].runningLoad; gymAcuteSum   += sortedData[lastIdx - j].gymLoad; }
+    for (let j = 0; j < 28; j++) { runningChronicSum += sortedData[lastIdx - j].runningLoad; gymChronicSum += sortedData[lastIdx - j].gymLoad; }
+  }
+
+  const runningAcute7   = runningAcuteSum  / 7;
+  const runningChronic28 = runningChronicSum / 28;
+  const gymAcute7        = gymAcuteSum      / 7;
+  const gymChronic28     = gymChronicSum    / 28;
+
+  // Si no hay crónico pero sí agudo, es una carga nueva sin base = ratio alto (1.5 como señal)
+  const runningAcwr = runningChronic28 > 0
+    ? Math.round((runningAcute7 / runningChronic28) * 100) / 100
+    : (runningAcute7 > 0 ? 1.5 : 0);
+  const gymAcwr = gymChronic28 > 0
+    ? Math.round((gymAcute7 / gymChronic28) * 100) / 100
+    : (gymAcute7 > 0 ? 1.5 : 0);
+
+  return {
+    timeline: plotTimeline,
+    current: {
+      acute: current.acute,
+      chronic: current.chronic,
+      acwr: current.acwr,
+      date: current.date,
+      // ACWRs por disciplina — consumidos por el AI Coach de Predictors.jsx
+      runningAcwr,
+      gymAcwr,
+      runningAcute: Math.round(runningAcute7 * 10) / 10,
+      gymAcute:     Math.round(gymAcute7     * 10) / 10,
+    }
+  };
+};
+
 
 

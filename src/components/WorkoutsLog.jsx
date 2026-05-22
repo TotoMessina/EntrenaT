@@ -17,6 +17,35 @@ import { formatPace, calculate1RM, timeStringToSeconds, getHRZonePlacement } fro
 import GpxVisualizer from './GpxVisualizer';
 import { compressGpxData, decompressGpxData } from '../utils/gpxCompressor';
 
+const getGymSessionVolume = (workout) => {
+  return workout.exercises?.reduce((sum, ex) => {
+    if (Array.isArray(ex.sets)) {
+      return sum + ex.sets.reduce((exSum, s) => {
+        if (s.done !== false) {
+          const w = parseFloat(s.weight) || 0;
+          const r = parseFloat(s.reps) || 0;
+          return exSum + (w * r);
+        }
+        return exSum;
+      }, 0);
+    } else {
+      const sets = Number(ex.sets) || 0;
+      const reps = Number(ex.reps) || 0;
+      const weight = Number(ex.weight) || 0;
+      return sum + (sets * reps * weight);
+    }
+  }, 0) || 0;
+};
+
+const getGymSessionSetsCount = (workout) => {
+  return workout.exercises?.reduce((sum, ex) => {
+    if (Array.isArray(ex.sets)) {
+      return sum + ex.sets.length;
+    }
+    return sum + (Number(ex.sets) || 0);
+  }, 0) || 0;
+};
+
 export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout, onUpdateAllWorkouts }) {
   const [filterType, setFilterType] = useState('all'); // all, running, gym
   const [searchQuery, setSearchQuery] = useState('');
@@ -74,7 +103,8 @@ export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout
         if (selectedWorkouts.has(w.id) && w.type === 'gym') {
           return {
             ...w,
-            muscleGroup: newMuscle
+            muscleGroup: newMuscle,
+            trainedMuscles: [newMuscle]
           };
         }
         return w;
@@ -92,8 +122,13 @@ export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout
       const pace = dist > 0 ? timeStringToSeconds(w.duration) / dist : 0;
       return dist >= 10 || (pace > 0 && pace < 300); // 10km+ or under 5:00/km
     } else if (w.type === 'gym') {
-      const volume = w.exercises?.reduce((sum, ex) => sum + (ex.sets * ex.reps * ex.weight), 0) || 0;
-      const hasHeavyWeight = w.exercises?.some(ex => Number(ex.weight) >= 80);
+      const volume = getGymSessionVolume(w);
+      const hasHeavyWeight = w.exercises?.some(ex => {
+        if (Array.isArray(ex.sets)) {
+          return ex.sets.some(s => Number(s.weight) >= 80);
+        }
+        return Number(ex.weight) >= 80;
+      });
       return volume >= 4000 || hasHeavyWeight; // 4000kg+ volume or 80kg+ lift
     }
     return false;
@@ -127,8 +162,8 @@ export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout
 
   // Get all unique muscle groups in database for filter list
   const muscleGroups = ['all', ...new Set(workouts
-    .filter(w => w.type === 'gym' && w.muscleGroup)
-    .map(w => w.muscleGroup)
+    .filter(w => w.type === 'gym')
+    .flatMap(w => w.trainedMuscles && w.trainedMuscles.length > 0 ? w.trainedMuscles : (w.muscleGroup ? [w.muscleGroup] : []))
   )];
 
   // --- FILTERING & SORTING LOGIC ---
@@ -159,7 +194,12 @@ export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout
       }
       
       // 3. Muscle group filter (for gym only)
-      if (w.type === 'gym' && filterMuscle !== 'all' && w.muscleGroup !== filterMuscle) return false;
+      if (w.type === 'gym' && filterMuscle !== 'all') {
+        const hasMuscle = w.trainedMuscles && w.trainedMuscles.length > 0
+          ? w.trainedMuscles.includes(filterMuscle)
+          : w.muscleGroup === filterMuscle;
+        if (!hasMuscle) return false;
+      }
       if (w.type === 'running' && filterMuscle !== 'all') return false; // Hide runs when filtering by gym muscles
       
       // 4. Search query filter
@@ -173,7 +213,9 @@ export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout
           return dateMatch || noteMatch || terrainMatch || w.distance.toString().includes(query);
         } else if (w.type === 'gym') {
           const nameMatch = w.sessionName && w.sessionName.toLowerCase().includes(query);
-          const muscleMatch = w.muscleGroup && w.muscleGroup.toLowerCase().includes(query);
+          const muscleMatch = (w.trainedMuscles && w.trainedMuscles.length > 0)
+            ? w.trainedMuscles.some(m => m.toLowerCase().includes(query))
+            : (w.muscleGroup && w.muscleGroup.toLowerCase().includes(query));
           const exerciseMatch = w.exercises && w.exercises.some(ex => ex.name.toLowerCase().includes(query));
           return dateMatch || noteMatch || nameMatch || muscleMatch || exerciseMatch;
         }
@@ -194,18 +236,10 @@ export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout
         return distB - distA;
       }
       if (sortBy === 'volume-desc') {
-        const getVol = (w) => {
-          if (w.type !== 'gym') return 0;
-          return w.exercises?.reduce((sum, ex) => sum + (ex.sets * ex.reps * ex.weight), 0) || 0;
-        };
-        return getVol(b) - getVol(a);
+        return getGymSessionVolume(b) - getGymSessionVolume(a);
       }
       return 0;
     });
-
-  const getGymSessionVolume = (workout) => {
-    return workout.exercises?.reduce((sum, ex) => sum + (ex.sets * ex.reps * ex.weight), 0) || 0;
-  };
 
   return (
     <div className="log-container fade-in">
@@ -376,15 +410,23 @@ export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout
                       <div className="identity-title-row">
                         <span className="workout-row-title">
                           {isGym 
-                            ? (w.sessionName || `Sesión de ${w.muscleGroup}`) 
+                            ? (w.sessionName || (w.muscleGroup ? `Sesión de ${w.muscleGroup}` : 'Sesión de Fuerza')) 
                             : `Corrida al aire libre`}
                         </span>
                         <span className={`badge ${isGym ? 'badge-gym' : 'badge-running'}`}>
                           {isGym ? 'Gym' : 'Running'}
                         </span>
-                        {isGym && w.muscleGroup && (
-                          <span className="badge badge-secondary">{w.muscleGroup}</span>
-                        )}
+                        {isGym && (w.trainedMuscles && w.trainedMuscles.length > 0 ? (
+                          <div className="trained-muscles-badges-row" style={{ display: 'inline-flex', flexWrap: 'wrap', gap: '4px', marginLeft: '4px', verticalAlign: 'middle' }}>
+                            {w.trainedMuscles.map((m, idx) => (
+                              <span key={idx} className="badge badge-secondary" style={{ fontSize: '11px', textTransform: 'capitalize' }}>
+                                {m}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          w.muscleGroup && <span className="badge badge-secondary">{w.muscleGroup}</span>
+                        ))}
                       </div>
                       
                       <div className="workout-meta-line">
@@ -444,7 +486,7 @@ export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout
                         <div className="metric-box">
                           <span className="metric-box-label">Series Totales</span>
                           <span className="metric-box-value">
-                            {w.exercises?.reduce((sum, ex) => sum + Number(ex.sets), 0) || 0}
+                            {getGymSessionSetsCount(w)}
                           </span>
                         </div>
                       </>
@@ -793,19 +835,81 @@ export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout
                       </thead>
                       <tbody>
                         {w.exercises.map((ex, idx) => {
-                          const oneRepMax = calculate1RM(ex.weight, ex.reps);
-                          const vol = ex.sets * ex.reps * ex.weight;
+                          let oneRepMax = 0;
+                          let vol = 0;
+                          const isNested = Array.isArray(ex.sets);
+
+                          if (isNested) {
+                            ex.sets.forEach(s => {
+                              if (s.done !== false) {
+                                const rpeMax = calculate1RM(parseFloat(s.weight) || 0, parseFloat(s.reps) || 0, s.rpe);
+                                if (rpeMax > oneRepMax) {
+                                  oneRepMax = rpeMax;
+                                }
+                                vol += (parseFloat(s.weight) || 0) * (parseFloat(s.reps) || 0);
+                              }
+                            });
+                          } else {
+                            oneRepMax = calculate1RM(ex.weight, ex.reps, ex.rpe);
+                            vol = (Number(ex.sets) || 0) * (Number(ex.reps) || 0) * (Number(ex.weight) || 0);
+                          }
+
                           return (
                             <tr key={idx}>
                               <td><strong>{ex.name}</strong></td>
-                              <td className="center">{ex.sets}</td>
-                              <td className="center">{ex.reps}</td>
-                              <td className="right">{ex.weight} kg</td>
-                              <td className="center">
-                                <span className={`rpe-pill rpe-${ex.rpe}`}>
-                                  {ex.rpe || '-'}
-                                </span>
-                              </td>
+                              {isNested ? (
+                                <td colSpan={4}>
+                                  <div className="sets-badges-container" style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', padding: '4px 0' }}>
+                                    {ex.sets.map((s, sIdx) => {
+                                      const isWarmup = s.type === 'warmup';
+                                      const rpeText = s.rpe ? ` @ RPE ${s.rpe}` : '';
+                                      const restText = s.rest ? ` (⏱️${s.rest}s)` : '';
+                                      const completedStyle = s.done ? {} : { opacity: 0.5, textDecoration: 'line-through' };
+                                      const badgeStyle = isWarmup 
+                                        ? { 
+                                            backgroundColor: '#1e293b', 
+                                            border: '1px solid #475569', 
+                                            color: '#94a3b8', 
+                                            padding: '2px 8px', 
+                                            borderRadius: '6px', 
+                                            fontSize: '11px',
+                                            ...completedStyle
+                                          }
+                                        : { 
+                                            backgroundColor: 'rgba(236, 72, 153, 0.1)', 
+                                            border: '1px solid #ec4899', 
+                                            color: '#f472b6', 
+                                            padding: '2px 8px', 
+                                            borderRadius: '6px', 
+                                            fontSize: '11px', 
+                                            fontWeight: '500', 
+                                            boxShadow: '0 0 4px rgba(236, 72, 153, 0.2)',
+                                            ...completedStyle
+                                          };
+                                      return (
+                                        <span 
+                                          key={sIdx} 
+                                          style={badgeStyle} 
+                                          title={isWarmup ? `Serie de Calentamiento${s.done ? '' : ' (No realizada)'}` : `Serie Efectiva${s.done ? '' : ' (No realizada)'}`}
+                                        >
+                                          {isWarmup ? 'W' : `S${sIdx + 1}`}: {s.reps} x {s.weight}kg{rpeText}{restText}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                </td>
+                              ) : (
+                                <>
+                                  <td className="center">{ex.sets}</td>
+                                  <td className="center">{ex.reps}</td>
+                                  <td className="right">{ex.weight} kg</td>
+                                  <td className="center">
+                                    <span className={`rpe-pill rpe-${ex.rpe}`}>
+                                      {ex.rpe || '-'}
+                                    </span>
+                                  </td>
+                                </>
+                              )}
                               <td className="right text-primary" style={{ fontWeight: 600 }}>
                                 {oneRepMax > 0 ? `${oneRepMax.toFixed(1)} kg` : '-'}
                               </td>
@@ -871,9 +975,16 @@ export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout
                     <option value="" disabled>Reasignar Grupo Muscular...</option>
                     <option value="Pectoral">💪 Pectoral</option>
                     <option value="Espalda">👐 Espalda</option>
-                    <option value="Piernas">🦵 Piernas</option>
-                    <option value="Hombros">肩 Hombros</option>
-                    <option value="Brazos">💪 Brazos</option>
+                    <option value="Hombros">🛡️ Hombros</option>
+                    <option value="Bíceps">💪 Bíceps</option>
+                    <option value="Tríceps">🔥 Tríceps</option>
+                    <option value="Antebrazo">✊ Antebrazo</option>
+                    <option value="Core">🧱 Core</option>
+                    <option value="Cuádriceps">🦵 Cuádriceps</option>
+                    <option value="Isquiotibiales">🦵 Isquiotibiales</option>
+                    <option value="Gemelos">🦶 Gemelos</option>
+                    <option value="Glúteos">🍑 Glúteos</option>
+                    <option value="Cuello">🦒 Cuello</option>
                   </select>
                 </div>
               )}

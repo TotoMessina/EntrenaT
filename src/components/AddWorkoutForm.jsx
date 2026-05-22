@@ -24,11 +24,17 @@ import { timeStringToSeconds, secondsToTimeString } from '../utils/calculators';
 
 const EXERCISE_SUGGESTIONS = {
   'Pectoral': ['Press de Banca', 'Press Inclinado con Mancuernas', 'Aperturas en Polea', 'Fondos en Paralelas', 'Lagartijas (Push-ups)'],
-  'Espalda': ['Dominadas', 'Remo con Barra', 'Jalón al Pecho', 'Remo en Polea Baja', 'Peso Muerto', 'Hiperextensiones'],
-  'Pierna': ['Sentadilla Trasera con Barra', 'Prensa de Piernas', 'Desplantes (Lunges)', 'Curl de Pierna Acostado', 'Extensión de Cuádriceps', 'Elevación de Talones'],
-  'Hombros': ['Press Militar con Barra', 'Elevaciones Laterales', 'Press Arnold', 'Pájaros (Vuelos Posteriores)', 'Paseo del Granjero'],
-  'Brazos': ['Curl de Bíceps con Barra', 'Curl de Bíceps Martillo', 'Curl Concentrado', 'Curl en Banco Scott', 'Fondos de Tríceps', 'Extensiones en Polea Alta', 'Press Francés', 'Copa de Tríceps'],
-  'Core': ['Plancha Abdominal (Plank)', 'Crunch en Polea', 'Elevación de Piernas Colgado', 'Giros Rusos (Russian Twists)']
+  'Espalda': ['Dominadas', 'Remo con Barra', 'Jalón al Pecho', 'Remo en Polea Baja', 'Hiperextensiones'],
+  'Hombros': ['Press Militar con Barra', 'Elevaciones Laterales', 'Press Arnold', 'Pájaros (Vuelos Posteriores)'],
+  'Bíceps': ['Curl de Bíceps con Barra', 'Curl de Bíceps Martillo', 'Curl Concentrado', 'Curl en Banco Scott'],
+  'Tríceps': ['Fondos de Tríceps', 'Extensiones en Polea Alta', 'Press Francés', 'Copa de Tríceps'],
+  'Antebrazo': ['Curl de Muñeca Pronado', 'Curl de Muñeca Supinado', 'Paseo del Granjero', 'Cuelgue Pasivo'],
+  'Core': ['Plancha Abdominal (Plank)', 'Crunch en Polea', 'Elevación de Piernas Colgado', 'Giros Rusos (Russian Twists)'],
+  'Cuádriceps': ['Sentadilla Trasera con Barra', 'Prensa de Piernas', 'Desplantes (Lunges)', 'Extensión de Cuádriceps'],
+  'Isquiotibiales': ['Peso Muerto Rumano', 'Curl de Pierna Sentado', 'Curl de Pierna Acostado', 'Peso Muerto'],
+  'Gemelos': ['Elevación de Talones de Pie', 'Elevación de Talones Sentado'],
+  'Glúteos': ['Hip Thrust', 'Puente de Glúteos', 'Patada de Glúteo'],
+  'Cuello': ['Encogimientos de Hombros', 'Cuello con Arnés', 'Puente de Cuello']
 };
 
 const getRpeDescription = (rpe) => {
@@ -381,11 +387,253 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
   };
 
   // Gym-specific states
-  const [sessionName, setSessionName] = useState('');
-  const [muscleGroup, setMuscleGroup] = useState('Pectoral');
+  const [sessionName, setSessionName] = useState(preset?.sessionName || '');
+  const [muscleGroup, setMuscleGroup] = useState(() => {
+    const val = preset?.muscleGroup;
+    if (val === 'Pierna') return 'Cuádriceps';
+    if (val === 'Brazos') return 'Bíceps';
+    return val || 'Pectoral';
+  });
+  const [trainedMuscles, setTrainedMuscles] = useState(() => {
+    const val = preset?.muscleGroup;
+    if (val === 'Pierna') return ['Cuádriceps'];
+    if (val === 'Brazos') return ['Bíceps'];
+    return val ? [val] : ['Pectoral'];
+  });
   const [exercises, setExercises] = useState([
-    { name: '', sets: '4', reps: '10', weight: '50', rpe: '8' }
+    { 
+      name: '', 
+      sets: [
+        { type: 'working', weight: '50', reps: '10', rpe: '8', rest: '90', done: true },
+        { type: 'working', weight: '50', reps: '10', rpe: '8', rest: '90', done: true },
+        { type: 'working', weight: '50', reps: '10', rpe: '8', rest: '90', done: true },
+        { type: 'working', weight: '50', reps: '10', rpe: '8', rest: '90', done: true }
+      ]
+    }
   ]);
+
+  // Exercise to Muscle Map Dictionary for Smart Autodetection
+  const EXERCISE_TO_MUSCLE_MAP = {
+    // Pectoral (Pecho)
+    'pecho': 'Pectoral',
+    'banca': 'Pectoral',
+    'bench': 'Pectoral',
+    'aperturas': 'Pectoral',
+    'pectoral': 'Pectoral',
+    'fondos en paralelas': 'Pectoral',
+    'push-up': 'Pectoral',
+    'flexiones': 'Pectoral',
+    'lagartijas': 'Pectoral',
+    'inclinado': 'Pectoral',
+    'declinado': 'Pectoral',
+    'fly': 'Pectoral',
+    'flys': 'Pectoral',
+    'cruce': 'Pectoral',
+    
+    // Espalda
+    'dominadas': 'Espalda',
+    'pull-up': 'Espalda',
+    'pullup': 'Espalda',
+    'chin-up': 'Espalda',
+    'chinup': 'Espalda',
+    'remo': 'Espalda',
+    'row': 'Espalda',
+    'jalon': 'Espalda',
+    'jalón': 'Espalda',
+    'lat pulldown': 'Espalda',
+    'lumbares': 'Espalda',
+    'hiperextensiones': 'Espalda',
+    'pullover': 'Espalda',
+    'pull over': 'Espalda',
+    
+    // Hombros
+    'hombro': 'Hombros',
+    'hombros': 'Hombros',
+    'militar': 'Hombros',
+    'press militar': 'Hombros',
+    'overhead': 'Hombros',
+    'shoulder': 'Hombros',
+    'laterales': 'Hombros',
+    'pajaros': 'Hombros',
+    'pájaros': 'Hombros',
+    'deltoides': 'Hombros',
+    'arnold': 'Hombros',
+    'frontales': 'Hombros',
+    'vuelos': 'Hombros',
+    
+    // Bíceps
+    'biceps': 'Bíceps',
+    'bíceps': 'Bíceps',
+    'curl de biceps': 'Bíceps',
+    'curl de bíceps': 'Bíceps',
+    'curl': 'Bíceps',
+    'martillo': 'Bíceps',
+    'hammer': 'Bíceps',
+    'scott': 'Bíceps',
+    'predicador': 'Bíceps',
+    'concentrado': 'Bíceps',
+    
+    // Tríceps
+    'triceps': 'Tríceps',
+    'tríceps': 'Tríceps',
+    'copa': 'Tríceps',
+    'skullcrusher': 'Tríceps',
+    'rompecraneos': 'Tríceps',
+    'rompecráneos': 'Tríceps',
+    'frances': 'Tríceps',
+    'francés': 'Tríceps',
+    'french press': 'Tríceps',
+    'polea alta': 'Tríceps',
+    'extension de triceps': 'Tríceps',
+    'extensión de tríceps': 'Tríceps',
+    'patada de triceps': 'Tríceps',
+    'patada de tríceps': 'Tríceps',
+    
+    // Antebrazo
+    'antebrazo': 'Antebrazo',
+    'antebrazos': 'Antebrazo',
+    'forearm': 'Antebrazo',
+    'forearms': 'Antebrazo',
+    'pronacion': 'Antebrazo',
+    'pronación': 'Antebrazo',
+    'supinacion': 'Antebrazo',
+    'supinación': 'Antebrazo',
+    'muñeca': 'Antebrazo',
+    'muñecas': 'Antebrazo',
+    'granjero': 'Antebrazo',
+    'farmers': 'Antebrazo',
+    'cuelgue': 'Antebrazo',
+    
+    // Core
+    'core': 'Core',
+    'abdominales': 'Core',
+    'abdomen': 'Core',
+    'crunch': 'Core',
+    'plancha': 'Core',
+    'plank': 'Core',
+    'giros rusos': 'Core',
+    'russian twist': 'Core',
+    'elevacion de piernas': 'Core',
+    'elevación de piernas': 'Core',
+    'v-ups': 'Core',
+    'isometria': 'Core',
+    'oblicuos': 'Core',
+    
+    // Cuádriceps
+    'cuadriceps': 'Cuádriceps',
+    'cuádriceps': 'Cuádriceps',
+    'sentadilla': 'Cuádriceps',
+    'sentadillas': 'Cuádriceps',
+    'squat': 'Cuádriceps',
+    'squats': 'Cuádriceps',
+    'prensa': 'Cuádriceps',
+    'leg press': 'Cuádriceps',
+    'desplantes': 'Cuádriceps',
+    'lunges': 'Cuádriceps',
+    'zancadas': 'Cuádriceps',
+    'extensiones': 'Cuádriceps',
+    'extensions': 'Cuádriceps',
+    'hacks': 'Cuádriceps',
+    'sissy': 'Cuádriceps',
+    
+    // Isquiotibiales
+    'femoral': 'Isquiotibiales',
+    'femorales': 'Isquiotibiales',
+    'isquios': 'Isquiotibiales',
+    'isquiotibiales': 'Isquiotibiales',
+    'hamstring': 'Isquiotibiales',
+    'hamstrings': 'Isquiotibiales',
+    'muerto rumano': 'Isquiotibiales',
+    'peso muerto rumano': 'Isquiotibiales',
+    'peso muerto': 'Isquiotibiales',
+    'deadlift': 'Isquiotibiales',
+    
+    // Glúteos
+    'gluteo': 'Glúteos',
+    'glúteo': 'Glúteos',
+    'gluteos': 'Glúteos',
+    'glúteos': 'Glúteos',
+    'hip thrust': 'Glúteos',
+    'hipthrust': 'Glúteos',
+    'puente de gluteo': 'Glúteos',
+    'puente de glúteo': 'Glúteos',
+    'patada de gluteo': 'Glúteos',
+    'patada de glúteo': 'Glúteos',
+    'abductores': 'Glúteos',
+    'aductores': 'Glúteos',
+    
+    // Gemelos
+    'gemelo': 'Gemelos',
+    'gemelos': 'Gemelos',
+    'pantorrilla': 'Gemelos',
+    'pantorrillas': 'Gemelos',
+    'calf': 'Gemelos',
+    'calves': 'Gemelos',
+    'talones': 'Gemelos',
+    
+    // Cuello
+    'cuello': 'Cuello',
+    'neck': 'Cuello',
+    'trapecio': 'Cuello',
+    'trapecios': 'Cuello',
+    'encogimiento': 'Cuello',
+    'encogimientos': 'Cuello',
+    'shrugs': 'Cuello'
+  };
+
+  // Toggle visual muscle group selection
+  const toggleMuscle = (muscle) => {
+    setTrainedMuscles(prev => {
+      let next;
+      if (prev.includes(muscle)) {
+        next = prev.filter(m => m !== muscle);
+      } else {
+        next = [...prev, muscle];
+      }
+      if (next.length > 0) {
+        setMuscleGroup(next[0]);
+      }
+      return next;
+    });
+  };
+
+  const handleMuscleGroupChange = (val) => {
+    setMuscleGroup(val);
+    setTrainedMuscles(prev => {
+      if (prev.includes(val)) {
+        return [val, ...prev.filter(m => m !== val)];
+      } else {
+        return [val, ...prev];
+      }
+    });
+  };
+
+  // Effect to auto-detect muscles as the user types exercise names
+  useEffect(() => {
+    if (workoutType !== 'gym') return;
+    const detectedMuscles = new Set();
+    exercises.forEach(ex => {
+      if (!ex.name) return;
+      const lowerName = ex.name.toLowerCase();
+      Object.keys(EXERCISE_TO_MUSCLE_MAP).forEach(keyword => {
+        if (lowerName.includes(keyword)) {
+          detectedMuscles.add(EXERCISE_TO_MUSCLE_MAP[keyword]);
+        }
+      });
+    });
+
+    if (detectedMuscles.size > 0) {
+      setTrainedMuscles(prev => {
+        const union = new Set([...prev, ...detectedMuscles]);
+        const next = Array.from(union);
+        if (next.length > 0 && !next.includes(muscleGroup)) {
+          setMuscleGroup(next[0]);
+        }
+        const areEqual = prev.length === next.length && prev.every((v, i) => v === next[i]);
+        return areEqual ? prev : next;
+      });
+    }
+  }, [exercises, workoutType]);
 
   // ==========================================
   // METRONOME AND TEMPO ASSISTANT STATE & LOGIC
@@ -777,7 +1025,10 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
     if (preset) {
       if (preset.type) setWorkoutType(preset.type);
       if (preset.terrain) setTerrain(preset.terrain);
-      if (preset.muscleGroup) setMuscleGroup(preset.muscleGroup);
+      if (preset.muscleGroup) {
+        setMuscleGroup(preset.muscleGroup);
+        setTrainedMuscles([preset.muscleGroup]);
+      }
       if (preset.sessionName) setSessionName(preset.sessionName);
       
       if (preset.type === 'gym' && preset.muscleGroup) {
@@ -790,7 +1041,15 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
           'Core': 'Plancha Abdominal (Plank)'
         };
         const defaultExName = exercisesByMuscle[preset.muscleGroup] || '';
-        setExercises([{ name: defaultExName, sets: '4', reps: '10', weight: '50', rpe: '8' }]);
+        setExercises([{
+          name: defaultExName,
+          sets: [
+            { type: 'working', weight: '50', reps: '10', rpe: '8', rest: '90', done: true },
+            { type: 'working', weight: '50', reps: '10', rpe: '8', rest: '90', done: true },
+            { type: 'working', weight: '50', reps: '10', rpe: '8', rest: '90', done: true },
+            { type: 'working', weight: '50', reps: '10', rpe: '8', rest: '90', done: true }
+          ]
+        }]);
       }
     }
   }, [preset]);
@@ -852,7 +1111,15 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
   const addExerciseRow = () => {
     setExercises([
       ...exercises,
-      { name: '', sets: '4', reps: '10', weight: '50', rpe: '8' }
+      { 
+        name: '', 
+        sets: [
+          { type: 'working', weight: '50', reps: '10', rpe: '8', rest: '90', done: true },
+          { type: 'working', weight: '50', reps: '10', rpe: '8', rest: '90', done: true },
+          { type: 'working', weight: '50', reps: '10', rpe: '8', rest: '90', done: true },
+          { type: 'working', weight: '50', reps: '10', rpe: '8', rest: '90', done: true }
+        ]
+      }
     ]);
   };
 
@@ -870,13 +1137,64 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
     setExercises(updated);
   };
 
-  // Calculate live volume of session being recorded
+  const addSetToExercise = (exIdx) => {
+    const updated = [...exercises];
+    const currentSets = updated[exIdx].sets || [];
+    const lastSet = currentSets[currentSets.length - 1] || { type: 'working', weight: '50', reps: '10', rpe: '8', rest: '90', done: true };
+    updated[exIdx].sets = [
+      ...currentSets,
+      { 
+        type: lastSet.type, 
+        weight: lastSet.weight, 
+        reps: lastSet.reps, 
+        rpe: lastSet.rpe, 
+        rest: lastSet.rest, 
+        done: true 
+      }
+    ];
+    setExercises(updated);
+  };
+
+  const removeSetFromExercise = (exIdx, setIdx) => {
+    const updated = [...exercises];
+    const currentSets = updated[exIdx].sets || [];
+    if (currentSets.length === 1) {
+      alert("Cada ejercicio debe tener al menos una serie.");
+      return;
+    }
+    updated[exIdx].sets = currentSets.filter((_, idx) => idx !== setIdx);
+    setExercises(updated);
+  };
+
+  const updateSetField = (exIdx, setIdx, field, value) => {
+    const updated = [...exercises];
+    updated[exIdx].sets = updated[exIdx].sets.map((s, idx) => {
+      if (idx === setIdx) {
+        return { ...s, [field]: value };
+      }
+      return s;
+    });
+    setExercises(updated);
+  };
+
+  // Calculate live volume of session being recorded (only includes done: true sets)
   const getLiveSessionVolume = () => {
     return exercises.reduce((sum, ex) => {
-      const sets = Number(ex.sets) || 0;
-      const reps = Number(ex.reps) || 0;
-      const weight = Number(ex.weight) || 0;
-      return sum + (sets * reps * weight);
+      if (Array.isArray(ex.sets)) {
+        return sum + ex.sets.reduce((exSum, s) => {
+          if (s.done) {
+            const w = parseFloat(s.weight) || 0;
+            const r = parseFloat(s.reps) || 0;
+            return exSum + (w * r);
+          }
+          return exSum;
+        }, 0);
+      } else {
+        const sets = Number(ex.sets) || 0;
+        const reps = Number(ex.reps) || 0;
+        const weight = Number(ex.weight) || 0;
+        return sum + (sets * reps * weight);
+      }
     }, 0);
   };
 
@@ -930,13 +1248,29 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
         return;
       }
 
-      const formattedExercises = exercises.map(ex => ({
-        name: ex.name.trim(),
-        sets: parseInt(ex.sets) || 0,
-        reps: parseInt(ex.reps) || 0,
-        weight: parseFloat(ex.weight) || 0,
-        rpe: ex.rpe ? parseInt(ex.rpe) : null
-      }));
+      const formattedExercises = exercises.map(ex => {
+        // Formatear cada serie
+        const formattedSets = ex.sets.map(s => ({
+          type: s.type || 'working',
+          weight: parseFloat(s.weight) || 0,
+          reps: parseInt(s.reps) || 0,
+          rpe: s.rpe ? parseInt(s.rpe) : null,
+          rest: s.rest ? parseInt(s.rest) : 90,
+          done: s.done !== false
+        }));
+
+        // Buscar la primera serie efectiva (working) como fallback para campos planos retrocompatibles
+        const workingSets = formattedSets.filter(s => s.type === 'working');
+        const fallbackSet = workingSets.length > 0 ? workingSets[0] : formattedSets[0];
+
+        return {
+          name: ex.name.trim(),
+          sets: formattedSets,
+          reps: fallbackSet ? fallbackSet.reps : 0,
+          weight: fallbackSet ? fallbackSet.weight : 0,
+          rpe: fallbackSet ? fallbackSet.rpe : null
+        };
+      });
 
       const newWorkout = {
         id: `gym-${Date.now()}`,
@@ -944,12 +1278,261 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
         date,
         sessionName: sessionName.trim(),
         muscleGroup,
+        trainedMuscles, // Guardar la lista de músculos específicos entrenados
         exercises: formattedExercises,
         notes
       };
 
       onSaveWorkout(newWorkout);
     }
+  };
+
+  const renderMuscleAnatomyMap = () => {
+    const isTrained = (m) => trainedMuscles.includes(m);
+    
+    return (
+      <div className="muscle-selector-wrapper">
+        <div className="anatomy-map-container">
+          <svg className="anatomy-svg" viewBox="0 0 240 220" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="gym-neon-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#ec4899" />
+                <stop offset="100%" stopColor="#f43f5e" />
+              </linearGradient>
+              <filter id="glow-filter" x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur stdDeviation="2" result="blur" />
+                <feMerge>
+                  <feMergeNode in="blur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+            </defs>
+            
+            {/* ANTERIOR VIEW (Left side, centered around X=60) */}
+            <g id="anterior-view">
+              <text x="60" y="215" fill="var(--text-muted)" fontSize="9" fontWeight="700" textAnchor="middle" letterSpacing="0.05em">ANTERIOR</text>
+              <ellipse cx="60" cy="20" rx="9" ry="11" className="body-neutral" />
+              <circle cx="15" cy="112" r="3" className="body-neutral" />
+              <circle cx="105" cy="112" r="3" className="body-neutral" />
+              <path d="M 23 210 L 35 210 L 33 214 L 20 214 Z" className="body-neutral" />
+              <path d="M 85 210 L 97 210 L 100 214 L 87 214 Z" className="body-neutral" />
+
+              {/* Cuello */}
+              <path 
+                d="M 56 31 L 64 31 L 62 40 L 58 40 Z" 
+                className={`muscle-part ${isTrained('Cuello') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Cuello')}
+              />
+
+              {/* Hombros */}
+              <path 
+                d="M 43 45 L 34 47 L 38 60 L 44 52 Z" 
+                className={`muscle-part ${isTrained('Hombros') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Hombros')}
+              />
+              <path 
+                d="M 77 45 L 86 47 L 82 60 L 76 52 Z" 
+                className={`muscle-part ${isTrained('Hombros') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Hombros')}
+              />
+
+              {/* Pectoral */}
+              <path 
+                d="M 59 42 L 45 45 L 47 64 L 59 66 Z" 
+                className={`muscle-part ${isTrained('Pectoral') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Pectoral')}
+              />
+              <path 
+                d="M 61 42 L 75 45 L 73 64 L 61 66 Z" 
+                className={`muscle-part ${isTrained('Pectoral') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Pectoral')}
+              />
+
+              {/* Bíceps (Upper Arm Anterior) */}
+              <path 
+                d="M 34 47 L 28 72 L 33 80 L 38 60 Z" 
+                className={`muscle-part ${isTrained('Bíceps') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Bíceps')}
+              />
+              <path 
+                d="M 86 47 L 92 72 L 87 80 L 82 60 Z" 
+                className={`muscle-part ${isTrained('Bíceps') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Bíceps')}
+              />
+
+              {/* Antebrazo (Lower Arm Anterior) */}
+              <path 
+                d="M 28 72 L 20 106 L 25 106 L 33 80 Z" 
+                className={`muscle-part ${isTrained('Antebrazo') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Antebrazo')}
+              />
+              <path 
+                d="M 92 72 L 100 106 L 95 106 L 87 80 Z" 
+                className={`muscle-part ${isTrained('Antebrazo') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Antebrazo')}
+              />
+
+              {/* Core */}
+              <path 
+                d="M 47 66 L 73 66 L 70 104 L 50 104 Z" 
+                className={`muscle-part ${isTrained('Core') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Core')}
+              />
+
+              {/* Cuádriceps (Upper Leg Anterior) */}
+              <path 
+                d="M 48 108 L 33 110 L 35 160 L 51 157 Z" 
+                className={`muscle-part ${isTrained('Cuádriceps') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Cuádriceps')}
+              />
+              <path 
+                d="M 72 108 L 87 110 L 85 160 L 69 157 Z" 
+                className={`muscle-part ${isTrained('Cuádriceps') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Cuádriceps')}
+              />
+
+              {/* Gemelos (Anterior view maps to Gemelos for visual simplicity) */}
+              <path 
+                d="M 35 160 L 27 206 L 34 207 L 45 158 Z" 
+                className={`muscle-part ${isTrained('Gemelos') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Gemelos')}
+              />
+              <path 
+                d="M 85 160 L 93 206 L 86 207 L 75 158 Z" 
+                className={`muscle-part ${isTrained('Gemelos') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Gemelos')}
+              />
+            </g>
+            
+            {/* POSTERIOR VIEW (Right side, centered around X=180) */}
+            <g id="posterior-view">
+              <text x="180" y="215" fill="var(--text-muted)" fontSize="9" fontWeight="700" textAnchor="middle" letterSpacing="0.05em">POSTERIOR</text>
+              <ellipse cx="180" cy="20" rx="9" ry="11" className="body-neutral" />
+              <circle cx="135" cy="112" r="3" className="body-neutral" />
+              <circle cx="225" cy="112" r="3" className="body-neutral" />
+              <path d="M 143 210 L 155 210 L 153 214 L 140 214 Z" className="body-neutral" />
+              <path d="M 205 210 L 217 210 L 220 214 L 207 214 Z" className="body-neutral" />
+
+              {/* Cuello */}
+              <path 
+                d="M 176 31 L 184 31 L 182 40 L 178 40 Z" 
+                className={`muscle-part ${isTrained('Cuello') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Cuello')}
+              />
+
+              {/* Hombros */}
+              <path 
+                d="M 163 45 L 154 47 L 158 60 L 164 52 Z" 
+                className={`muscle-part ${isTrained('Hombros') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Hombros')}
+              />
+              <path 
+                d="M 197 45 L 206 47 L 202 60 L 196 52 Z" 
+                className={`muscle-part ${isTrained('Hombros') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Hombros')}
+              />
+
+              {/* Espalda */}
+              <path 
+                d="M 179 42 L 164 45 L 166 84 L 179 90 Z" 
+                className={`muscle-part ${isTrained('Espalda') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Espalda')}
+              />
+              <path 
+                d="M 181 42 L 196 45 L 194 84 L 181 90 Z" 
+                className={`muscle-part ${isTrained('Espalda') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Espalda')}
+              />
+              <path 
+                d="M 166 84 L 194 84 L 191 104 L 169 104 Z" 
+                className={`muscle-part ${isTrained('Espalda') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Espalda')}
+              />
+
+              {/* Tríceps (Upper Arm Posterior) */}
+              <path 
+                d="M 154 47 L 148 72 L 153 80 L 158 60 Z" 
+                className={`muscle-part ${isTrained('Tríceps') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Tríceps')}
+              />
+              <path 
+                d="M 206 47 L 212 72 L 207 80 L 202 60 Z" 
+                className={`muscle-part ${isTrained('Tríceps') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Tríceps')}
+              />
+
+              {/* Antebrazo (Lower Arm Posterior) */}
+              <path 
+                d="M 148 72 L 140 106 L 145 106 L 153 80 Z" 
+                className={`muscle-part ${isTrained('Antebrazo') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Antebrazo')}
+              />
+              <path 
+                d="M 212 72 L 220 106 L 215 106 L 207 80 Z" 
+                className={`muscle-part ${isTrained('Antebrazo') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Antebrazo')}
+              />
+
+              {/* Glúteos (Upper Leg Posterior Top) */}
+              <path 
+                d="M 168 108 L 153 110 L 154 130 L 170 128 Z" 
+                className={`muscle-part ${isTrained('Glúteos') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Glúteos')}
+              />
+              <path 
+                d="M 192 108 L 207 110 L 206 130 L 190 128 Z" 
+                className={`muscle-part ${isTrained('Glúteos') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Glúteos')}
+              />
+
+              {/* Isquiotibiales (Upper Leg Posterior Bottom) */}
+              <path 
+                d="M 170 128 L 154 130 L 155 160 L 171 157 Z" 
+                className={`muscle-part ${isTrained('Isquiotibiales') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Isquiotibiales')}
+              />
+              <path 
+                d="M 190 128 L 206 130 L 205 160 L 189 157 Z" 
+                className={`muscle-part ${isTrained('Isquiotibiales') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Isquiotibiales')}
+              />
+
+              {/* Gemelos (Lower Leg Posterior) */}
+              <path 
+                d="M 155 160 L 147 206 L 154 207 L 165 158 Z" 
+                className={`muscle-part ${isTrained('Gemelos') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Gemelos')}
+              />
+              <path 
+                d="M 205 160 L 213 206 L 206 207 L 195 158 Z" 
+                className={`muscle-part ${isTrained('Gemelos') ? 'active' : ''}`}
+                onClick={() => toggleMuscle('Gemelos')}
+              />
+            </g>
+          </svg>
+        </div>
+
+        <div className="muscle-chips-container">
+          <label className="form-label" style={{ marginBottom: '4px' }}>Músculos Entrenados</label>
+          <span className="text-secondary text-2xs mb-2" style={{ lineHeight: '1.2' }}>
+            Selecciona en el mapa visual o activa manualmente. ¡Se auto-detectan al escribir tus ejercicios!
+          </span>
+          <div className="muscle-chips-grid">
+            {['Pectoral', 'Espalda', 'Hombros', 'Bíceps', 'Tríceps', 'Antebrazo', 'Core', 'Cuádriceps', 'Isquiotibiales', 'Gemelos', 'Glúteos', 'Cuello'].map(muscle => (
+              <button
+                key={muscle}
+                type="button"
+                className={`muscle-chip ${isTrained(muscle) ? 'active' : ''}`}
+                onClick={() => toggleMuscle(muscle)}
+              >
+                <span>{muscle}</span>
+                <span className="muscle-chip-dot"></span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -1021,16 +1604,22 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
                 <label className="form-label">Grupo Muscular Principal</label>
                 <select
                   value={muscleGroup}
-                  onChange={(e) => setMuscleGroup(e.target.value)}
+                  onChange={(e) => handleMuscleGroupChange(e.target.value)}
                   className="form-select"
                 >
-                  <option value="Pectoral">Pectoral (Pecho)</option>
-                  <option value="Espalda">Espalda</option>
-                  <option value="Pierna">Pierna</option>
-                  <option value="Hombros">Hombros</option>
-                  <option value="Brazos">Brazos (Bíceps/Tríceps)</option>
-                  <option value="Core">Core (Abdomen)</option>
-                  <option value="Full Body">Cuerpo Completo (Full Body)</option>
+                  <option value="Pectoral">💪 Pectoral</option>
+                  <option value="Espalda">👐 Espalda</option>
+                  <option value="Hombros">🛡️ Hombros</option>
+                  <option value="Bíceps">💪 Bíceps</option>
+                  <option value="Tríceps">🔥 Tríceps</option>
+                  <option value="Antebrazo">✊ Antebrazo</option>
+                  <option value="Core">🧱 Core</option>
+                  <option value="Cuádriceps">🦵 Cuádriceps</option>
+                  <option value="Isquiotibiales">🦵 Isquiotibiales</option>
+                  <option value="Gemelos">🦶 Gemelos</option>
+                  <option value="Glúteos">🍑 Glúteos</option>
+                  <option value="Cuello">🦒 Cuello</option>
+                  <option value="Full Body">🌐 Cuerpo Completo</option>
                 </select>
               </div>
             )}
@@ -1649,7 +2238,7 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
           {/* GYM FIELDS */}
           {workoutType === 'gym' && (
             <div className="gym-form-section">
-              <div className="form-group">
+              <div className="form-group mb-4">
                 <label className="form-label">Nombre de la Sesión</label>
                 <input
                   type="text"
@@ -1661,114 +2250,191 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
                 />
               </div>
 
-              {/* Dynamic Exercise Grid List */}
+              {/* Render Beautiful Cyberpunk Interactive Muscle Anatomy Selector */}
+              {renderMuscleAnatomyMap()}
+
+              {/* Dynamic Exercise Cards Builder */}
               <div className="exercises-builder-container mb-4">
-                <div className="builder-header">
-                  <h4 className="builder-title text-secondary">Ejercicios Realizados</h4>
+                <div className="builder-header" style={{ marginBottom: '1.25rem' }}>
+                  <h4 className="builder-title text-secondary" style={{ fontSize: '1rem', fontWeight: '700' }}>Ejercicios Realizados</h4>
                   <button
                     type="button"
                     onClick={addExerciseRow}
                     className="btn btn-secondary py-1 px-3 flex-center text-xs"
+                    style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)' }}
                   >
-                    <Plus size={14} /> Agregar Fila
+                    <Plus size={14} style={{ marginRight: '4px' }} /> Agregar Ejercicio
                   </button>
                 </div>
 
-                <div className="exercises-rows-list">
-                  {exercises.map((ex, idx) => (
-                    <div key={idx} className="exercise-builder-row">
-                      <div className="col-name">
-                        <label className="form-label text-xs">Nombre Ejercicio</label>
-                        <input
-                          type="text"
-                          placeholder="Ej: Press de Banca"
-                          value={ex.name}
-                          onChange={(e) => updateExerciseField(idx, 'name', e.target.value)}
-                          required
-                          className="form-input"
-                          list={`exercise-suggestions-${muscleGroup}`}
-                        />
-                      </div>
-                      
-                      <div className="col-sets">
-                        <label className="form-label text-xs">Series</label>
-                        <input
-                          type="number"
-                          min="1"
-                          placeholder="Series"
-                          value={ex.sets}
-                          onChange={(e) => updateExerciseField(idx, 'sets', e.target.value)}
-                          required
-                          className="form-input"
-                        />
-                      </div>
-
-                      <div className="col-reps">
-                        <label className="form-label text-xs">Reps</label>
-                        <input
-                          type="number"
-                          min="1"
-                          placeholder="Reps"
-                          value={ex.reps}
-                          onChange={(e) => updateExerciseField(idx, 'reps', e.target.value)}
-                          required
-                          className="form-input"
-                        />
-                      </div>
-
-                      <div className="col-weight">
-                        <label className="form-label text-xs">Peso (kg)</label>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.5"
-                          placeholder="Peso"
-                          value={ex.weight}
-                          onChange={(e) => updateExerciseField(idx, 'weight', e.target.value)}
-                          required
-                          className="form-input"
-                        />
-                      </div>
-
-                      <div className="col-rpe">
-                        <label className="form-label text-xs">RPE</label>
-                        <select
-                          value={ex.rpe}
-                          onChange={(e) => updateExerciseField(idx, 'rpe', e.target.value)}
-                          className="form-select"
+                <div className="exercises-cards-list">
+                  {exercises.map((ex, exIdx) => (
+                    <div key={exIdx} className="exercise-card">
+                      <div className="exercise-card-header">
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1 }}>
+                          <label className="form-label text-xs" style={{ color: 'var(--text-secondary)' }}>Ejercicio #{exIdx + 1}</label>
+                          <input
+                            type="text"
+                            placeholder="Ej: Press de Banca"
+                            value={ex.name}
+                            onChange={(e) => updateExerciseField(exIdx, 'name', e.target.value)}
+                            required
+                            className="form-input"
+                            style={{ width: '100%', fontWeight: '600' }}
+                            list={`exercise-suggestions-${muscleGroup}`}
+                          />
+                        </div>
+                        
+                        <button
+                          type="button"
+                          onClick={() => removeExerciseRow(exIdx)}
+                          className="btn-set-action delete"
+                          title="Eliminar este ejercicio"
+                          style={{ marginTop: '1.5rem', width: '32px', height: '32px', borderRadius: '8px' }}
                         >
-                          <option value="6">6 (RIR 4)</option>
-                          <option value="7">7 (RIR 3)</option>
-                          <option value="8">8 (RIR 2)</option>
-                          <option value="9">9 (RIR 1)</option>
-                          <option value="10">10 (RIR 0)</option>
-                        </select>
-                        <span className="rpe-rir-caption" style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'block', marginTop: '3px', whiteSpace: 'nowrap' }}>
-                          {getRpeDescription(ex.rpe)}
-                        </span>
+                          <Trash2 size={16} />
+                        </button>
                       </div>
 
+                      {/* Sets Table */}
+                      <div className="sets-table-container">
+                        <table className="sets-table">
+                          <thead>
+                            <tr>
+                              <th className="set-number-col">#</th>
+                              <th style={{ width: '100px' }}>Tipo</th>
+                              <th>Peso (kg)</th>
+                              <th>Reps</th>
+                              <th>RPE / RIR</th>
+                              <th>Descanso</th>
+                              <th style={{ width: '50px', textAlign: 'center' }}>Listo</th>
+                              <th style={{ width: '40px' }}></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(ex.sets || []).map((set, setIdx) => (
+                              <tr key={setIdx}>
+                                <td className="set-number-col">{setIdx + 1}</td>
+                                <td>
+                                  <button
+                                    type="button"
+                                    className={`set-badge-btn ${set.type === 'warmup' ? 'warmup' : 'working'}`}
+                                    onClick={() => updateSetField(exIdx, setIdx, 'type', set.type === 'warmup' ? 'working' : 'warmup')}
+                                    title="Haz clic para alternar tipo de serie"
+                                  >
+                                    {set.type === 'warmup' ? 'Warmup' : 'Working'}
+                                  </button>
+                                </td>
+                                <td>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="0.5"
+                                    value={set.weight}
+                                    onChange={(e) => updateSetField(exIdx, setIdx, 'weight', e.target.value)}
+                                    required
+                                    className="set-input-compact"
+                                  />
+                                </td>
+                                <td>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    value={set.reps}
+                                    onChange={(e) => updateSetField(exIdx, setIdx, 'reps', e.target.value)}
+                                    required
+                                    className="set-input-compact"
+                                  />
+                                </td>
+                                <td>
+                                  <select
+                                    value={set.rpe}
+                                    onChange={(e) => updateSetField(exIdx, setIdx, 'rpe', e.target.value)}
+                                    className="set-select-compact"
+                                  >
+                                    <option value="10">10 (RIR 0)</option>
+                                    <option value="9">9 (RIR 1)</option>
+                                    <option value="8">8 (RIR 2)</option>
+                                    <option value="7">7 (RIR 3)</option>
+                                    <option value="6">6 (RIR 4)</option>
+                                  </select>
+                                </td>
+                                <td>
+                                  <div className="set-rest-wrapper">
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="5"
+                                      value={set.rest}
+                                      onChange={(e) => updateSetField(exIdx, setIdx, 'rest', e.target.value)}
+                                      required
+                                      className="set-input-compact"
+                                      style={{ maxWidth: '55px' }}
+                                    />
+                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>s</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleStartRestTimer(parseInt(set.rest) || 90)}
+                                      className="btn-set-action"
+                                      title="Iniciar cronómetro de descanso"
+                                      style={{ color: 'var(--color-gym)' }}
+                                    >
+                                      <Timer size={14} />
+                                    </button>
+                                  </div>
+                                </td>
+                                <td style={{ textAlign: 'center' }}>
+                                  <button
+                                    type="button"
+                                    className={`set-checkbox ${set.done ? 'checked' : ''}`}
+                                    onClick={() => {
+                                      const nextDone = !set.done;
+                                      updateSetField(exIdx, setIdx, 'done', nextDone);
+                                      if (nextDone) {
+                                        handleStartRestTimer(parseInt(set.rest) || 90);
+                                      }
+                                    }}
+                                  >
+                                    {set.done && <span style={{ fontSize: '0.65rem', fontWeight: 'bold' }}>✓</span>}
+                                  </button>
+                                </td>
+                                <td>
+                                  <button
+                                    type="button"
+                                    onClick={() => removeSetFromExercise(exIdx, setIdx)}
+                                    className="btn-set-action delete"
+                                    title="Quitar serie"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Add Set Button */}
                       <button
                         type="button"
-                        onClick={() => removeExerciseRow(idx)}
-                        className="btn-remove-row"
-                        title="Quitar ejercicio"
+                        onClick={() => addSetToExercise(exIdx)}
+                        className="btn btn-secondary py-1 px-3 text-xs flex-center"
+                        style={{ background: 'rgba(236, 72, 153, 0.05)', borderColor: 'rgba(236, 72, 153, 0.1)', color: 'var(--color-gym)', marginTop: '0.5rem' }}
                       >
-                        <Trash2 size={16} />
+                        <Plus size={12} style={{ marginRight: '4px' }} /> Agregar Serie
                       </button>
                     </div>
                   ))}
-                  
-                  {/* Dynamic Autocomplete datalist */}
-                  <datalist id={`exercise-suggestions-${muscleGroup}`}>
-                    {(EXERCISE_SUGGESTIONS[muscleGroup] || []).map(suggestion => (
-                      <option key={suggestion} value={suggestion} />
-                    ))}
-                  </datalist>
                 </div>
 
-                <div className="builder-summary-line">
-                  <span>Volumen acumulado de esta sesión: <strong>{getLiveSessionVolume().toLocaleString('es-ES')} kg</strong></span>
+                <datalist id={`exercise-suggestions-${muscleGroup}`}>
+                  {(EXERCISE_SUGGESTIONS[muscleGroup] || []).map(suggestion => (
+                    <option key={suggestion} value={suggestion} />
+                  ))}
+                </datalist>
+
+                <div className="builder-summary-line" style={{ marginTop: '1.25rem', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>Volumen de series realizadas: <strong>{getLiveSessionVolume().toLocaleString('es-ES')} kg</strong></span>
                 </div>
               </div>
             </div>
@@ -2700,6 +3366,291 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
             font-size: 0.9rem;
           }
         }
+
+        /* Visual Muscle Anatomy Selector Styles */
+        .muscle-selector-wrapper {
+          display: grid;
+          grid-template-columns: 1fr 1.1fr;
+          gap: 1.5rem;
+          background: rgba(255, 255, 255, 0.02);
+          border: 1px solid rgba(255, 255, 255, 0.05);
+          border-radius: 12px;
+          padding: 1rem;
+          margin-bottom: 1.5rem;
+        }
+        
+        @media (max-width: 640px) {
+          .muscle-selector-wrapper {
+            grid-template-columns: 1fr;
+            gap: 1rem;
+          }
+        }
+        
+        .anatomy-map-container {
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          background: rgba(0, 0, 0, 0.25);
+          border-radius: 8px;
+          padding: 0.5rem;
+          border: 1px solid rgba(255, 255, 255, 0.02);
+          min-height: 230px;
+        }
+        
+        .anatomy-svg {
+          width: 100%;
+          max-width: 240px;
+          height: auto;
+          user-select: none;
+        }
+        
+        .muscle-part {
+          fill: rgba(255, 255, 255, 0.06);
+          stroke: rgba(255, 255, 255, 0.2);
+          stroke-width: 1;
+          transition: all var(--transition-fast);
+          cursor: pointer;
+        }
+        
+        .muscle-part:hover {
+          fill: rgba(236, 72, 153, 0.2);
+          stroke: var(--color-gym);
+        }
+        
+        .muscle-part.active {
+          fill: url(#gym-neon-gradient);
+          stroke: var(--color-gym);
+          stroke-width: 1.5;
+          filter: drop-shadow(0 0 4px rgba(236, 72, 153, 0.6));
+        }
+        
+        .body-neutral {
+          fill: rgba(255, 255, 255, 0.12);
+          stroke: none;
+          pointer-events: none;
+        }
+        
+        .muscle-chips-container {
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          gap: 0.5rem;
+        }
+        
+        .muscle-chips-grid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 8px;
+        }
+        
+        .muscle-chip {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 0.5rem 0.75rem;
+          background: rgba(255, 255, 255, 0.02);
+          border: 1px solid rgba(255, 255, 255, 0.05);
+          border-radius: 8px;
+          color: var(--text-secondary);
+          font-size: 0.8rem;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all var(--transition-fast);
+        }
+        
+        .muscle-chip:hover {
+          background: rgba(255, 255, 255, 0.06);
+          border-color: rgba(255, 255, 255, 0.1);
+        }
+        
+        .muscle-chip.active {
+          background: rgba(236, 72, 153, 0.12);
+          border-color: var(--color-gym);
+          color: var(--color-gym);
+          box-shadow: 0 0 10px rgba(236, 72, 153, 0.1);
+        }
+        
+        .muscle-chip-dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: rgba(255, 255, 255, 0.2);
+          transition: all var(--transition-fast);
+        }
+        
+        .muscle-chip.active .muscle-chip-dot {
+          background: var(--color-gym);
+          box-shadow: 0 0 6px var(--color-gym);
+        }
+
+        /* Structured Sets Builder Styles */
+        .exercise-card {
+          background: rgba(255, 255, 255, 0.02);
+          border: 1px solid rgba(255, 255, 255, 0.05);
+          border-radius: 12px;
+          padding: 1.25rem;
+          margin-bottom: 1.25rem;
+          transition: all var(--transition-fast);
+        }
+        
+        .exercise-card:hover {
+          border-color: rgba(236, 72, 153, 0.2);
+          background: rgba(255, 255, 255, 0.03);
+        }
+        
+        .exercise-card-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 1rem;
+        }
+        
+        .sets-table-container {
+          overflow-x: auto;
+          width: 100%;
+          margin-bottom: 0.75rem;
+        }
+        
+        .sets-table {
+          width: 100%;
+          border-collapse: collapse;
+          text-align: left;
+          min-width: 480px;
+        }
+        
+        .sets-table th {
+          font-size: 0.7rem;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          color: var(--text-muted);
+          padding: 0.5rem;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+          font-weight: 600;
+        }
+        
+        .sets-table td {
+          padding: 0.4rem 0.5rem;
+          vertical-align: middle;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+        }
+        
+        .set-number-col {
+          font-size: 0.8rem;
+          font-weight: 700;
+          color: var(--text-secondary);
+          width: 30px;
+        }
+        
+        .set-badge-btn {
+          padding: 0.25rem 0.5rem;
+          border-radius: 6px;
+          font-size: 0.7rem;
+          font-weight: 700;
+          cursor: pointer;
+          transition: all var(--transition-fast);
+          border: 1px solid transparent;
+          text-transform: uppercase;
+        }
+        
+        .set-badge-btn.working {
+          background: rgba(236, 72, 153, 0.1);
+          border-color: rgba(236, 72, 153, 0.3);
+          color: var(--color-gym);
+        }
+        
+        .set-badge-btn.warmup {
+          background: rgba(59, 130, 246, 0.1);
+          border-color: rgba(59, 130, 246, 0.3);
+          color: #60a5fa;
+        }
+        
+        .set-input-compact {
+          background: rgba(0, 0, 0, 0.25);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: 6px;
+          color: var(--text-primary);
+          padding: 0.3rem 0.5rem;
+          font-size: 0.8rem;
+          width: 100%;
+          max-width: 65px;
+          text-align: center;
+          transition: all var(--transition-fast);
+        }
+        
+        .set-input-compact:focus {
+          border-color: var(--color-gym);
+          outline: none;
+          box-shadow: 0 0 6px rgba(236, 72, 153, 0.2);
+        }
+        
+        .set-select-compact {
+          background: rgba(0, 0, 0, 0.25);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: 6px;
+          color: var(--text-primary);
+          padding: 0.3rem 0.5rem;
+          font-size: 0.8rem;
+          width: 100%;
+          max-width: 90px;
+          transition: all var(--transition-fast);
+        }
+        
+        .set-select-compact:focus {
+          border-color: var(--color-gym);
+          outline: none;
+        }
+        
+        .set-rest-wrapper {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        
+        .btn-set-action {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 24px;
+          height: 24px;
+          border-radius: 4px;
+          background: transparent;
+          border: none;
+          color: var(--text-muted);
+          cursor: pointer;
+          transition: all var(--transition-fast);
+        }
+        
+        .btn-set-action:hover {
+          color: var(--color-gym);
+          background: rgba(255, 255, 255, 0.05);
+        }
+        
+        .btn-set-action.delete:hover {
+          color: #ef4444;
+          background: rgba(239, 68, 68, 0.1);
+        }
+        
+        .set-checkbox {
+          width: 20px;
+          height: 20px;
+          border-radius: 4px;
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          background: rgba(0, 0, 0, 0.3);
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          transition: all var(--transition-fast);
+          padding: 0;
+        }
+        
+        .set-checkbox.checked {
+          background: var(--color-gym);
+          border-color: var(--color-gym);
+          color: white;
+          box-shadow: 0 0 6px var(--color-gym);
+        }
+      }
       `}</style>
 
     </div>

@@ -20,7 +20,9 @@ import {
   calculateHRZones,
   getRunningExponentDetails,
   calculateDecayedHistoricalRunningMetrics,
-  solveVDOTTime
+  solveVDOTTime,
+  getForceVelocityProfile,
+  calculateACWRData
 } from '../utils/calculators';
 
 export default function Predictors({ workouts = [], profile = {} }) {
@@ -39,6 +41,7 @@ export default function Predictors({ workouts = [], profile = {} }) {
   // --- GYM PREDICTOR STATE ---
   const [refWeight, setRefWeight] = useState(() => localStorage.getItem('fitanalytics_profile_weight') || '80'); // kg
   const [refReps, setRefReps] = useState('8');
+  const [refRpe, setRefRpe] = useState('10'); // Borg effort scale (1-10)
   
   const [estimated1RM, setEstimated1RM] = useState(0);
   const [gymRecommendations, setGymRecommendations] = useState([]);
@@ -51,6 +54,7 @@ export default function Predictors({ workouts = [], profile = {} }) {
   const [hoveredGymPoint, setHoveredGymPoint] = useState(null);
   const [hoveredFitnessPoint, setHoveredFitnessPoint] = useState(null);
   const [hoveredWorkout, setHoveredWorkout] = useState(null);
+  const [hoveredACWRPoint, setHoveredACWRPoint] = useState(null);
 
   // --- HEART RATE ZONE PREDICTOR STATE ---
   const [age, setAge] = useState(() => Number(localStorage.getItem('fitanalytics_age')) || 25);
@@ -67,6 +71,10 @@ export default function Predictors({ workouts = [], profile = {} }) {
   const historicalMetrics = React.useMemo(() => {
     return calculateDecayedHistoricalRunningMetrics(workouts, profile);
   }, [workouts, profile]);
+
+  const acwrData = React.useMemo(() => {
+    return calculateACWRData(workouts);
+  }, [workouts]);
 
   const activeRunningParams = React.useMemo(() => {
     if (runningMode === 'history') {
@@ -130,7 +138,7 @@ export default function Predictors({ workouts = [], profile = {} }) {
     const w = parseFloat(refWeight);
     const r = parseInt(refReps);
     if (w > 0 && r > 0) {
-      const computed1RM = calculate1RM(w, r);
+      const computed1RM = calculate1RM(w, r, refRpe);
       setEstimated1RM(computed1RM);
       const recs = getRecommendedGymWeights(w, r);
       setGymRecommendations(recs);
@@ -139,7 +147,7 @@ export default function Predictors({ workouts = [], profile = {} }) {
 
   useEffect(() => {
     handleCalculateGym();
-  }, [refWeight, refReps]);
+  }, [refWeight, refReps, refRpe]);
 
   // Compute manual custom weight
   const getCustomWeight = () => {
@@ -174,21 +182,44 @@ export default function Predictors({ workouts = [], profile = {} }) {
         let max1RM = 0;
         let matchedWeight = 0;
         let matchedReps = 0;
+        let matchedRpe = 10;
         let matchedName = '';
 
         w.exercises.forEach(ex => {
           const exName = (ex.name || '').toLowerCase();
           const matches = trackEx.keywords.some(kw => exName.includes(kw));
           if (matches) {
-            const weight = Number(ex.weight) || 0;
-            const reps = Number(ex.reps) || 0;
-            if (weight > 0 && reps > 0) {
-              const oneRepMax = reps === 1 ? weight : weight * (1 + reps / 30);
-              if (oneRepMax > max1RM) {
-                max1RM = oneRepMax;
-                matchedWeight = weight;
-                matchedReps = reps;
-                matchedName = ex.name;
+            if (Array.isArray(ex.sets)) {
+              ex.sets.forEach(s => {
+                if (s.done !== false) {
+                  const weight = parseFloat(s.weight) || 0;
+                  const reps = parseFloat(s.reps) || 0;
+                  const rpe = s.rpe;
+                  if (weight > 0 && reps > 0) {
+                    const oneRepMax = calculate1RM(weight, reps, rpe);
+                    if (oneRepMax > max1RM) {
+                      max1RM = oneRepMax;
+                      matchedWeight = weight;
+                      matchedReps = reps;
+                      matchedRpe = rpe !== undefined && rpe !== null && rpe !== '' ? parseFloat(rpe) : 10;
+                      matchedName = ex.name;
+                    }
+                  }
+                }
+              });
+            } else {
+              const weight = Number(ex.weight) || 0;
+              const reps = Number(ex.reps) || 0;
+              const rpe = ex.rpe;
+              if (weight > 0 && reps > 0) {
+                const oneRepMax = calculate1RM(weight, reps, rpe);
+                if (oneRepMax > max1RM) {
+                  max1RM = oneRepMax;
+                  matchedWeight = weight;
+                  matchedReps = reps;
+                  matchedRpe = rpe !== undefined && rpe !== null && rpe !== '' ? parseFloat(rpe) : 10;
+                  matchedName = ex.name;
+                }
               }
             }
           }
@@ -200,6 +231,7 @@ export default function Predictors({ workouts = [], profile = {} }) {
             oneRepMax: Math.round(max1RM * 10) / 10,
             weight: matchedWeight,
             reps: matchedReps,
+            rpe: matchedRpe,
             exName: matchedName
           });
         }
@@ -208,6 +240,69 @@ export default function Predictors({ workouts = [], profile = {} }) {
 
     return history;
   }, [workouts]);
+
+  // --- TENDENCIA NEUROMUSCULAR Y DETECTOR DE ESTANCAMIENTO ---
+  const neuromuscularAdaptation = React.useMemo(() => {
+    const currentHistory = strengthHistory[activeGymExercise] || [];
+    if (currentHistory.length < 2) {
+      return {
+        status: 'Necesita Más Datos',
+        badge: '⚡ REGISTROS INSUFICIENTES',
+        color: '#3b82f6', // blue
+        borderColor: 'rgba(59, 130, 246, 0.4)',
+        glowColor: 'rgba(59, 130, 246, 0.15)',
+        trendPct: 0,
+        advice: 'Registra al menos 2 sesiones de este ejercicio en diferentes fechas en la Bitácora para calcular tu tendencia neuromuscular y diagnosticar adaptaciones o estancamientos científicos.'
+      };
+    }
+
+    // Compare recent 1RM (average of last 2 entries) vs baseline (average of first 2 entries)
+    const sorted = [...currentHistory].sort((a, b) => new Date(a.date) - new Date(b.date));
+    
+    // Recent 1RM (average of up to 2 latest points)
+    const recentPoints = sorted.slice(-2);
+    const recentAvg = recentPoints.reduce((sum, p) => sum + p.oneRepMax, 0) / recentPoints.length;
+
+    // Baseline 1RM (average of up to 2 oldest points from earlier weeks)
+    const basePoints = sorted.slice(0, Math.min(2, sorted.length - 1 || 1));
+    const baseAvg = basePoints.reduce((sum, p) => sum + p.oneRepMax, 0) / basePoints.length;
+
+    const diff = recentAvg - baseAvg;
+    const trendPct = baseAvg > 0 ? (diff / baseAvg) * 100 : 0;
+
+    let status = 'Supercompensación';
+    let badge = '⚡ SUPERCOMPENSACIÓN ACTIVA';
+    let color = '#10b981'; // Green
+    let borderColor = 'rgba(16, 185, 129, 0.4)';
+    let glowColor = 'rgba(16, 185, 129, 0.15)';
+    let advice = 'Tu sistema neuromuscular se está adaptando de forma excepcional. Continúa con tu progresión lineal de cargas (+1-2kg por semana o intenta añadir 1 repetición más con el mismo peso). ¡Mantén la constancia!';
+
+    if (trendPct >= -1.0 && trendPct <= 3.0) {
+      status = 'Estancamiento';
+      badge = '⚠️ MESETA DE FUERZA (ESTANCADO)';
+      color = '#fbbf24'; // Amber
+      borderColor = 'rgba(251, 191, 36, 0.4)';
+      glowColor = 'rgba(251, 191, 36, 0.15)';
+      advice = 'Has alcanzado una meseta de fuerza neuromuscular. Para romper este estancamiento, se recomienda pasar a un modelo de Doble Progresión (fija el peso actual hasta lograr las repeticiones meta en todas las series antes de incrementarlo) o introduce Periodización Ondulante, alternando una sesión pesada de fuerza con una ligera de potencia dinámica al 60% de tu 1RM.';
+    } else if (trendPct < -1.0) {
+      status = 'Descarga Recomendada';
+      badge = '🛑 COMPROMISO DE RECUPERACIÓN (DESCARGA)';
+      color = '#f87171'; // Red
+      borderColor = 'rgba(248, 113, 113, 0.4)';
+      glowColor = 'rgba(248, 113, 113, 0.15)';
+      advice = 'Tu fuerza máxima estimada ha decrecido en las últimas semanas. Esto suele indicar fatiga sistémica acumulada o interferencia del entrenamiento cardiovascular recurrente. Se recomienda realizar una Semana de Descarga (Deload) reduciendo el volumen de series al 50% y bajando el peso un 10-15% para permitir la supercompensación de las fibras musculares.';
+    }
+
+    return {
+      status,
+      badge,
+      color,
+      borderColor,
+      glowColor,
+      trendPct: Math.round(trendPct * 10) / 10,
+      advice
+    };
+  }, [strengthHistory, activeGymExercise]);
 
   // --- TSS & CTL/ATL/TSB CALCULATIONS (BANISTER ENGINE) ---
   const fitnessFatigueData = React.useMemo(() => {
@@ -330,70 +425,24 @@ export default function Predictors({ workouts = [], profile = {} }) {
   };
 
   // --- AI COACH SCIENTIFIC TELEMETRY ENGINE ---
+  // HIGH-05: usa acwrData.current (calculado por calculateACWRData) en lugar de
+  // reimplementar la lógica ACWR localmente. Elimina la duplicación entre tabs.
   const aiCoachTelemetry = React.useMemo(() => {
+    // Leer ACWRs por disciplina desde el motor ACWR unificado
+    const cardioACWR   = acwrData.current.runningAcwr;
+    const strengthACWR = acwrData.current.gymAcwr;
+
     const today = new Date();
     today.setHours(23, 59, 59, 999);
-
     const thirtyDaysAgo = new Date(today);
     thirtyDaysAgo.setDate(today.getDate() - 30);
     thirtyDaysAgo.setHours(0, 0, 0, 0);
-
-    const sevenDaysAgo = new Date(today);
-    sevenDaysAgo.setDate(today.getDate() - 7);
-    sevenDaysAgo.setHours(0, 0, 0, 0);
 
     const recentWorkouts = workouts.filter(w => {
       if (!w.date) return false;
       const wDate = new Date(w.date + 'T00:00:00');
       return wDate >= thirtyDaysAgo && wDate <= today;
     });
-
-    const acuteWorkouts = recentWorkouts.filter(w => {
-      const wDate = new Date(w.date + 'T00:00:00');
-      return wDate >= sevenDaysAgo && wDate <= today;
-    });
-
-    // Cardiovascular Load (TRIMP equivalent = minutes * intensity)
-    const getCardioLoad = (w) => {
-      const durationStr = w.duration || "00:00:00";
-      const parts = durationStr.split(':');
-      let mins = 0;
-      if (parts.length === 3) {
-        mins = (parseInt(parts[0]) || 0) * 60 + (parseInt(parts[1]) || 0) + (parseInt(parts[2]) || 0) / 60;
-      } else if (parts.length === 2) {
-        mins = (parseInt(parts[0]) || 0) + (parseInt(parts[1]) || 0) / 60;
-      } else {
-        mins = parseInt(durationStr) || 0;
-      }
-      
-      const intensity = w.heartRate ? (Number(w.heartRate) / 100) : (Number(w.rpe) || 6);
-      return mins * intensity;
-    };
-
-    const acuteCardioLoads = acuteWorkouts.filter(w => w.type === 'running').map(getCardioLoad);
-    const chronicCardioLoads = recentWorkouts.filter(w => w.type === 'running').map(getCardioLoad);
-
-    const acuteCardioLoad = acuteCardioLoads.reduce((a, b) => a + b, 0);
-    const chronicCardioLoad = chronicCardioLoads.reduce((a, b) => a + b, 0) / 4; // weekly average
-    const cardioACWR = chronicCardioLoad > 0 ? (acuteCardioLoad / chronicCardioLoad) : 1.0;
-
-    // Muscular Volume Carga (sets * reps * weight)
-    const getGymVolume = (w) => {
-      let vol = 0;
-      if (w.exercises && Array.isArray(w.exercises)) {
-        w.exercises.forEach(ex => {
-          vol += (Number(ex.sets) || 0) * (Number(ex.reps) || 0) * (Number(ex.weight) || 0);
-        });
-      }
-      return vol;
-    };
-
-    const acuteGymVolumes = acuteWorkouts.filter(w => w.type === 'gym').map(getGymVolume);
-    const chronicGymVolumes = recentWorkouts.filter(w => w.type === 'gym').map(getGymVolume);
-
-    const acuteGymLoad = acuteGymVolumes.reduce((a, b) => a + b, 0);
-    const chronicGymLoad = chronicGymVolumes.reduce((a, b) => a + b, 0) / 4; // weekly average
-    const strengthACWR = chronicGymLoad > 0 ? (acuteGymLoad / chronicGymLoad) : 1.0;
 
     // Muscle recency tracking
     const muscleRecency = {
@@ -412,6 +461,9 @@ export default function Predictors({ workouts = [], profile = {} }) {
 
         const musclesInSession = [];
         if (w.muscleGroup) musclesInSession.push(w.muscleGroup.toLowerCase());
+        if (w.trainedMuscles && Array.isArray(w.trainedMuscles)) {
+          w.trainedMuscles.forEach(m => musclesInSession.push(m.toLowerCase()));
+        }
         if (w.exercises && Array.isArray(w.exercises)) {
           w.exercises.forEach(ex => {
             if (ex.muscleGroup) musclesInSession.push(ex.muscleGroup.toLowerCase());
@@ -428,9 +480,9 @@ export default function Predictors({ workouts = [], profile = {} }) {
           let key = '';
           if (m.includes('pectoral') || m.includes('pecho') || m.includes('empuje')) key = 'pectoral';
           else if (m.includes('espalda') || m.includes('remo') || m.includes('tirón')) key = 'espalda';
-          else if (m.includes('pierna') || m.includes('sentadilla') || m.includes('femoral') || m.includes('cuad')) key = 'piernas';
-          else if (m.includes('hombro') || m.includes('deltoide')) key = 'hombros';
-          else if (m.includes('brazo') || m.includes('curl') || m.includes('bicep') || m.includes('tricep')) key = 'brazos';
+          else if (m.includes('pierna') || m.includes('sentadilla') || m.includes('femoral') || m.includes('cuad') || m.includes('cuádriceps') || m.includes('isquiotibiales') || m.includes('gemelo') || m.includes('glúteo') || m.includes('gluteo')) key = 'piernas';
+          else if (m.includes('hombro') || m.includes('deltoide') || m.includes('cuello')) key = 'hombros';
+          else if (m.includes('brazo') || m.includes('curl') || m.includes('bicep') || m.includes('tricep') || m.includes('bíceps') || m.includes('tríceps') || m.includes('antebrazo')) key = 'brazos';
 
           if (key && diffDays < muscleRecency[key].lastTrainedDays) {
             muscleRecency[key].lastTrainedDays = diffDays;
@@ -566,16 +618,12 @@ export default function Predictors({ workouts = [], profile = {} }) {
     }
 
     return {
-      acuteCardioLoad,
-      chronicCardioLoad,
       cardioACWR,
-      acuteGymLoad,
-      chronicGymLoad,
       strengthACWR,
       muscleRecency,
       recommendation
     };
-  }, [workouts, profile]);
+  }, [workouts, acwrData]);
 
   return (
     <div className="predictors-container fade-in">
@@ -589,7 +637,6 @@ export default function Predictors({ workouts = [], profile = {} }) {
         </div>
       </header>
 
-      {/* Switcher */}
       <div className="tab-switcher mb-5">
         <button
           type="button"
@@ -611,6 +658,13 @@ export default function Predictors({ workouts = [], profile = {} }) {
           className={`tab-btn ${activeCalculator === 'heartrate' ? 'active-hr' : ''}`}
         >
           ❤️ Cardio (Tanaka)
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveCalculator('acwr')}
+          className={`tab-btn ${activeCalculator === 'acwr' ? 'active-acwr' : ''}`}
+        >
+          📊 Carga Trabajo (ACWR)
         </button>
         <button
           type="button"
@@ -1196,9 +1250,9 @@ export default function Predictors({ workouts = [], profile = {} }) {
               </h3>
               <p className="text-muted text-xs mb-4">Ingresa tu peso levantado y repeticiones al fallo técnico para proyectar tu fuerza máxima.</p>
               
-              <div className="form-row-2">
-                <div className="form-group">
-                  <label className="form-label">Peso Levantado (kg)</label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem', marginBottom: '1rem' }}>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Peso (kg)</label>
                   <input
                     type="number"
                     value={refWeight}
@@ -1208,8 +1262,8 @@ export default function Predictors({ workouts = [], profile = {} }) {
                   />
                 </div>
 
-                <div className="form-group">
-                  <label className="form-label">Repeticiones Logradas</label>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Repeticiones</label>
                   <input
                     type="number"
                     min="1"
@@ -1220,12 +1274,32 @@ export default function Predictors({ workouts = [], profile = {} }) {
                     placeholder="Ej: 8"
                   />
                 </div>
+
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Esfuerzo (RPE)</label>
+                  <select
+                    value={refRpe}
+                    onChange={(e) => setRefRpe(e.target.value)}
+                    className="form-input"
+                    style={{ background: 'rgba(15,15,22,0.8)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', color: '#fff', height: '100%', fontSize: '0.75rem' }}
+                  >
+                    <option value="10">RPE 10 (0 RIR)</option>
+                    <option value="9.5">RPE 9.5</option>
+                    <option value="9">RPE 9 (1 RIR)</option>
+                    <option value="8.5">RPE 8.5</option>
+                    <option value="8">RPE 8 (2 RIR)</option>
+                    <option value="7.5">RPE 7.5</option>
+                    <option value="7">RPE 7 (3 RIR)</option>
+                    <option value="6">RPE 6 (4 RIR)</option>
+                    <option value="5">RPE 5 (5 RIR)</option>
+                  </select>
+                </div>
               </div>
 
               <div className="calculated-1rm-box mb-4">
                 <span className="label text-muted">1RM Máximo Estimado</span>
                 <h2 className="value gym-text font-extrabold">{estimated1RM.toFixed(1)} <span className="unit">kg</span></h2>
-                <span className="subtext">Fórmula de Epley</span>
+                <span className="subtext">Fórmula Científica Epley & Brzycki Ponderada</span>
               </div>
 
               {/* Slider custom weight simulator */}
@@ -1242,6 +1316,10 @@ export default function Predictors({ workouts = [], profile = {} }) {
                   value={customPct}
                   onChange={(e) => setCustomPct(parseInt(e.target.value))}
                   className="custom-range-slider"
+                  style={{
+                    '--slider-thumb-color': 'var(--color-gym)',
+                    '--slider-thumb-shadow': 'rgba(236, 72, 153, 0.5)'
+                  }}
                 />
                 <div className="slider-result">
                   <span>Peso Objetivo:</span>
@@ -1541,6 +1619,213 @@ export default function Predictors({ workouts = [], profile = {} }) {
               );
             })()}
           </div>
+
+          {/* TENDENCIA NEUROMUSCULAR & DETECTOR DE ESTANCAMIENTO */}
+          <div className="glass-card" style={{ 
+            padding: '1.5rem', 
+            border: `1px solid ${neuromuscularAdaptation.borderColor}`, 
+            boxShadow: `0 0 15px ${neuromuscularAdaptation.glowColor}`,
+            position: 'relative',
+            overflow: 'hidden'
+          }}>
+            <div className="flex justify-between items-start mb-3" style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <div>
+                <span className="ai-recommendation-badge mb-1" style={{ 
+                  backgroundColor: neuromuscularAdaptation.borderColor, 
+                  color: neuromuscularAdaptation.color, 
+                  border: `1px solid ${neuromuscularAdaptation.color}`,
+                  padding: '2px 8px',
+                  borderRadius: '6px',
+                  fontSize: '9px',
+                  fontWeight: 'bold',
+                  display: 'inline-block'
+                }}>
+                  {neuromuscularAdaptation.badge}
+                </span>
+                <h3 className="gradient-text font-extrabold text-lg style-none" style={{ fontSize: '1.25rem', margin: '0.2rem 0' }}>
+                  Asistente de Adaptación Neuromuscular
+                </h3>
+              </div>
+              {neuromuscularAdaptation.status !== 'Necesita Más Datos' && (
+                <div className="text-right" style={{ textAlign: 'right' }}>
+                  <span className="text-muted text-xs block" style={{ display: 'block', fontSize: '10px' }}>Tendencia (Últimas semanas)</span>
+                  <strong style={{ 
+                    color: neuromuscularAdaptation.trendPct >= 0 ? '#10b981' : '#f87171', 
+                    fontSize: '1.2rem', 
+                    fontWeight: 800 
+                  }}>
+                    {neuromuscularAdaptation.trendPct >= 0 ? `+${neuromuscularAdaptation.trendPct}` : neuromuscularAdaptation.trendPct}%
+                  </strong>
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', padding: '12px', border: '1px solid rgba(255,255,255,0.04)' }}>
+              <Brain size={20} style={{ color: neuromuscularAdaptation.color, flexShrink: 0, marginTop: '2px' }} />
+              <p className="text-xs text-secondary leading-relaxed" style={{ margin: 0 }}>
+                {neuromuscularAdaptation.advice}
+              </p>
+            </div>
+            
+            {/* Stats Comparativas */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
+              {(() => {
+                const currentHistory = strengthHistory[activeGymExercise] || [];
+                const realMax1RM = currentHistory.length > 0 ? Math.max(...currentHistory.map(p => p.oneRepMax)) : 0;
+                const reference1RM = realMax1RM > 0 ? realMax1RM : estimated1RM;
+                
+                return (
+                  <>
+                    <div style={{ background: 'rgba(0,0,0,0.15)', borderRadius: '8px', padding: '10px', border: '1px solid rgba(255,255,255,0.02)' }}>
+                      <span className="text-muted text-xxs block uppercase tracking-wider" style={{ display: 'block', fontSize: '9px', letterSpacing: '0.05em', color: 'rgba(255,255,255,0.4)' }}>Récord 1RM Histórico</span>
+                      <strong className="gym-text text-sm block" style={{ fontSize: '1.1rem', marginTop: '2px', display: 'block' }}>
+                        {realMax1RM > 0 ? `${realMax1RM.toFixed(1)} kg` : 'Sin registros reales'}
+                      </strong>
+                    </div>
+                    <div style={{ background: 'rgba(0,0,0,0.15)', borderRadius: '8px', padding: '10px', border: '1px solid rgba(255,255,255,0.02)' }}>
+                      <span className="text-muted text-xxs block uppercase tracking-wider" style={{ display: 'block', fontSize: '9px', letterSpacing: '0.05em', color: 'rgba(255,255,255,0.4)' }}>1RM Referencia Activo</span>
+                      <strong className="text-primary text-sm block" style={{ fontSize: '1.1rem', marginTop: '2px', display: 'block' }}>
+                        {reference1RM.toFixed(1)} kg
+                      </strong>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+
+          {/* CURVA DE FUERZA-VELOCIDAD Y PERFIL DE POTENCIA */}
+          <div className="glass-card" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            <div>
+              <span className="ai-recommendation-badge mb-1 bg-gym-badge">⚡ PERFIL DE FUERZA-VELOCIDAD y POTENCIA</span>
+              <h3 className="gradient-text font-extrabold text-xl" style={{ fontSize: '1.4rem', margin: '0.2rem 0' }}>
+                Curva de Fuerza-Velocidad
+              </h3>
+              <p className="text-secondary text-xs leading-relaxed">
+                Modelado biomecánico de velocidad media propulsiva (MPV) y potencia teórica estimada sobre tu 1RM de referencia.
+              </p>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
+              {(() => {
+                const currentHistory = strengthHistory[activeGymExercise] || [];
+                const realMax1RM = currentHistory.length > 0 ? Math.max(...currentHistory.map(p => p.oneRepMax)) : 0;
+                const reference1RM = realMax1RM > 0 ? realMax1RM : estimated1RM;
+                const fvProfile = getForceVelocityProfile(reference1RM);
+                
+                // Filtrar perfil a repeticiones clave (1, 3, 5, 8, 10, 12) para simpleza y legibilidad
+                const keyReps = [1, 3, 5, 8, 10, 12];
+                const displayProfile = fvProfile.filter(p => keyReps.includes(p.reps));
+
+                return displayProfile.map((p, idx) => (
+                  <div 
+                    key={idx} 
+                    style={{ 
+                      background: p.isPeakPowerZone ? 'rgba(236,72,153,0.05)' : 'rgba(255,255,255,0.01)',
+                      border: p.isPeakPowerZone ? '1px solid rgba(236, 72, 153, 0.25)' : '1px solid rgba(255,255,255,0.03)',
+                      borderRadius: '10px',
+                      padding: '12px 14px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                      position: 'relative',
+                      boxShadow: p.isPeakPowerZone ? '0 0 10px rgba(236,72,153,0.05)' : 'none',
+                      transition: 'transform 0.2s ease, border-color 0.2s ease',
+                      cursor: 'default'
+                    }}
+                    className="fv-profile-card"
+                  >
+                    {p.isPeakPowerZone && (
+                      <span style={{ 
+                        position: 'absolute', 
+                        top: '8px', 
+                        right: '8px', 
+                        fontSize: '8px', 
+                        background: 'rgba(236, 72, 153, 0.15)', 
+                        color: '#f472b6', 
+                        border: '1px solid rgba(236, 72, 153, 0.3)',
+                        borderRadius: '4px',
+                        padding: '1px 5px',
+                        fontWeight: 'bold'
+                      }}>
+                        PICO POTENCIA 💥
+                      </span>
+                    )}
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <strong style={{ fontSize: '0.9rem', color: p.isPeakPowerZone ? '#f472b6' : 'rgba(255,255,255,0.85)' }}>
+                        {p.reps} {p.reps === 1 ? 'Repetición' : 'Repeticiones'}
+                      </strong>
+                      <span className="text-muted text-xxs font-bold" style={{ fontSize: '9px', color: 'rgba(255,255,255,0.45)' }}>{p.pct}% 1RM</span>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                      <span className="text-secondary text-xs" style={{ fontSize: '11px' }}>Carga teórica:</span>
+                      <strong className="gym-text" style={{ fontSize: '1.05rem' }}>{p.weight.toFixed(1)} kg</strong>
+                    </div>
+
+                    {/* Velocity bar */}
+                    <div>
+                      <div className="flex justify-between items-center text-xxs mb-1" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px' }}>
+                        <span className="text-muted" style={{ color: 'rgba(255,255,255,0.4)' }}>Velocidad (MPV)</span>
+                        <strong style={{ color: '#06b6d4' }}>{p.mpv.toFixed(2)} m/s</strong>
+                      </div>
+                      <div className="dial-bar-track" style={{ height: '4px', background: 'rgba(255,255,255,0.03)', borderRadius: '2px' }}>
+                        <div 
+                          className="dial-bar-fill" 
+                          style={{ 
+                            width: `${Math.min(100, (p.mpv / 1.5) * 100)}%`,
+                            backgroundColor: '#06b6d4',
+                            height: '100%',
+                            borderRadius: '2px'
+                          }}
+                        ></div>
+                      </div>
+                    </div>
+
+                    {/* Power bar */}
+                    <div>
+                      <div className="flex justify-between items-center text-xxs mb-1" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px' }}>
+                        <span className="text-muted" style={{ color: 'rgba(255,255,255,0.4)' }}>Potencia Estimada</span>
+                        <strong style={{ color: '#a855f7' }}>{p.powerWatts} W</strong>
+                      </div>
+                      <div className="dial-bar-track" style={{ height: '4px', background: 'rgba(255,255,255,0.03)', borderRadius: '2px' }}>
+                        <div 
+                          className="dial-bar-fill" 
+                          style={{ 
+                            width: `${Math.min(100, (p.powerWatts / (reference1RM * 12 || 1)) * 100)}%`,
+                            backgroundColor: p.isPeakPowerZone ? '#ec4899' : '#a855f7',
+                            boxShadow: p.isPeakPowerZone ? '0 0 6px rgba(236,72,153,0.5)' : 'none',
+                            height: '100%',
+                            borderRadius: '2px'
+                          }}
+                        ></div>
+                      </div>
+                    </div>
+                  </div>
+                ));
+              })()}
+            </div>
+            
+            {(() => {
+              const currentHistory = strengthHistory[activeGymExercise] || [];
+              const realMax1RM = currentHistory.length > 0 ? Math.max(...currentHistory.map(p => p.oneRepMax)) : 0;
+              const reference1RM = realMax1RM > 0 ? realMax1RM : estimated1RM;
+              const fvProfile = getForceVelocityProfile(reference1RM);
+              const peaks = fvProfile.filter(p => p.isPeakPowerZone);
+              const peaksReps = peaks.map(p => `${p.reps} reps`).join(' o ');
+              const peaksPcts = peaks.map(p => `${p.pct}%`).join('-');
+
+              return (
+                <div className="calculator-info-box" style={{ marginTop: '0.25rem', display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                  <Zap size={14} className="text-secondary-glow" style={{ color: '#ec4899', flexShrink: 0, marginTop: '2px' }} />
+                  <p className="text-xxs text-secondary leading-relaxed" style={{ margin: 0, fontSize: '10px' }}>
+                    <strong>Metodología de Transferencia:</strong> El entrenamiento con cargas que maximizan la potencia mecánica ({peaksReps} al {peaksPcts}) desarrolla la tasa de reclutamiento neuromuscular rápida. Esto tiene transferencia directa para mejorar el sprint final en running y aumentar la economía de zancada.
+                  </p>
+                </div>
+              );
+            })()}
+          </div>
         </div>
       )}
 
@@ -1569,6 +1854,10 @@ export default function Predictors({ workouts = [], profile = {} }) {
                   value={age}
                   onChange={(e) => setAge(Number(e.target.value))}
                   className="custom-range-slider"
+                  style={{
+                    '--slider-thumb-color': '#ef4444',
+                    '--slider-thumb-shadow': 'rgba(239, 68, 68, 0.5)'
+                  }}
                 />
                 <input
                   type="number"
@@ -2148,876 +2437,443 @@ export default function Predictors({ workouts = [], profile = {} }) {
         </div>
       )}
 
-      <style>{`
-        .predictors-container {
-          display: flex;
-          flex-direction: column;
-          gap: 1.5rem;
-        }
-
-        .predictors-header {
-          margin-bottom: 0.5rem;
-        }
-
-        .text-3xl {
-          font-size: 1.85rem;
-          font-weight: 800;
-        }
-
-        .text-secondary {
-          color: var(--text-secondary);
-        }
-
-        .text-sm {
-          font-size: 0.9rem;
-          margin-top: 0.25rem;
-        }
-
-        .text-xs {
-          font-size: 0.75rem;
-        }
-
-        .mb-5 { margin-bottom: 1.25rem; }
-        .mb-4 { margin-bottom: 1rem; }
-        .mb-3 { margin-bottom: 0.75rem; }
-        .mt-3 { margin-top: 0.75rem; }
-
-        /* Grid structures */
-        .grid-panels {
-          display: grid;
-          grid-template-columns: 1fr 1.6fr;
-          gap: 1.5rem;
-          align-items: start;
-        }
-
-        @media (max-width: 900px) {
-          .grid-panels {
-            grid-template-columns: 1fr;
-          }
-        }
-
-        .panel-left {
-          padding: 1.5rem;
-          display: flex;
-          flex-direction: column;
-          gap: 1.25rem;
-        }
-
-        .panel-right {
-          padding: 1.5rem;
-        }
-
-        .panel-right-group {
-          display: flex;
-          flex-direction: column;
-          gap: 1.5rem;
-        }
-
-        .panel-title {
-          font-size: 1.1rem;
-          font-weight: 700;
-          color: var(--text-primary);
-          gap: 0.4rem;
-        }
-
-        /* Time pickers */
-        .time-inputs-group {
-          display: flex;
-          align-items: center;
-          gap: 0.4rem;
-        }
-
-        .time-separator {
-          font-weight: bold;
-          color: var(--text-muted);
-        }
-
-        /* Info boxes */
-        .calculator-info-box {
-          display: flex;
-          gap: 0.75rem;
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px solid var(--border-light);
-          padding: 0.75rem;
-          border-radius: 10px;
-        }
-
-        .calculator-table {
-          width: 100%;
-          border-collapse: collapse;
-          font-size: 0.85rem;
-          text-align: left;
-        }
-
-        .calculator-table th {
-          color: var(--text-muted);
-          font-weight: 600;
-          padding: 0.6rem 0.75rem;
-          border-bottom: 1px solid var(--border-light);
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          font-size: 0.75rem;
-        }
-
-        .calculator-table td {
-          padding: 0.85rem 0.75rem;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-          color: var(--text-primary);
-          vertical-align: middle;
-        }
-
-        .calculator-table tr:last-child td {
-          border-bottom: none;
-        }
-
-        .reference-row {
-          background-color: rgba(16, 185, 129, 0.05);
-        }
-
-        .center { text-align: center; }
-        .right { text-align: right; }
-
-        /* Running zones cards */
-        .zones-card-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 1rem;
-          margin-top: 0.5rem;
-        }
-
-        @media (max-width: 600px) {
-          .zones-card-grid {
-            grid-template-columns: 1fr;
-          }
-        }
-
-        .zone-card {
-          padding: 0.85rem;
-          background: rgba(255, 255, 255, 0.01);
-          border: 1px solid var(--border-light);
-          border-radius: 10px;
-          display: flex;
-          flex-direction: column;
-          gap: 0.35rem;
-          transition: border-color var(--transition-fast);
-        }
-
-        .zone-card:hover {
-          border-color: rgba(16, 185, 129, 0.25);
-        }
-
-        .zone-card-header {
-          display: flex;
-          justify-content: space-between;
-          font-size: 0.75rem;
-          font-weight: 600;
-          color: var(--text-secondary);
-        }
-
-        .zone-name {
-          font-weight: 700;
-          color: var(--text-primary);
-        }
-
-        .zone-pace-range {
-          font-size: 1.15rem;
-          font-weight: 800;
-          color: var(--color-running);
-        }
-
-        .zone-desc {
-          font-size: 0.75rem;
-          color: var(--text-muted);
-          line-height: 1.3;
-        }
-
-        /* Gym 1RM Output */
-        .calculated-1rm-box {
-          padding: 1.25rem;
-          background: rgba(236, 72, 153, 0.04);
-          border: 1px dashed rgba(236, 72, 153, 0.2);
-          border-radius: 12px;
-          text-align: center;
-          display: flex;
-          flex-direction: column;
-          gap: 0.15rem;
-        }
-
-        .calculated-1rm-box .value {
-          font-size: 2.2rem;
-          line-height: 1;
-          margin: 0.25rem 0;
-        }
-
-        .calculated-1rm-box .unit {
-          font-size: 1.1rem;
-          font-weight: 500;
-          color: var(--text-secondary);
-        }
-
-        /* Custom Gym weight slider */
-        .custom-slider-card {
-          padding: 1rem;
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px solid var(--border-light);
-          border-radius: 12px;
-          display: flex;
-          flex-direction: column;
-          gap: 0.75rem;
-        }
-
-        .slider-header {
-          display: flex;
-          justify-content: space-between;
-        }
-
-        .custom-range-slider {
-          width: 100%;
-          -webkit-appearance: none;
-          background: rgba(255, 255, 255, 0.1);
-          height: 6px;
-          border-radius: 3px;
-          outline: none;
-        }
-
-        .custom-range-slider::-webkit-slider-thumb {
-          -webkit-appearance: none;
-          width: 16px;
-          height: 16px;
-          border-radius: 50%;
-          background: var(--color-gym);
-          cursor: pointer;
-          box-shadow: 0 0 10px rgba(236, 72, 153, 0.5);
-          transition: transform var(--transition-fast);
-        }
-
-        .custom-range-slider::-webkit-slider-thumb:hover {
-          transform: scale(1.2);
-        }
-
-        .slider-result {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          font-size: 0.85rem;
-          color: var(--text-secondary);
-        }
-
-        .slider-result strong {
-          font-size: 1.1rem;
-        }
-
-        .rec-goal-name {
-          font-size: 0.85rem;
-          font-weight: 700;
-        }
-
-        .rec-goal-desc {
-          margin-top: 0.15rem;
-          line-height: 1.3;
-        }
-
-        /* Tab switcher local styling */
-        .tab-switcher {
-          display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 0.75rem;
-          background-color: rgba(0, 0, 0, 0.2);
-          padding: 0.35rem;
-          border-radius: 12px;
-          border: 1px solid var(--border-light);
-        }
-
-        @media (max-width: 900px) {
-          .tab-switcher {
-            grid-template-columns: repeat(2, 1fr);
-          }
-        }
-
-        @media (max-width: 500px) {
-          .tab-switcher {
-            grid-template-columns: 1fr;
-          }
-        }
-
-        .tab-btn {
-          padding: 0.75rem;
-          border: none;
-          background: transparent;
-          font-family: var(--font-sans);
-          font-weight: 600;
-          font-size: 0.9rem;
-          color: var(--text-secondary);
-          border-radius: 8px;
-          cursor: pointer;
-          transition: all var(--transition-fast);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 0.5rem;
-        }
-
-        .tab-btn:hover {
-          color: var(--text-primary);
-          background: rgba(255, 255, 255, 0.02);
-        }
-
-        .tab-btn.active-run {
-          background: var(--color-running-gradient);
-          color: #ffffff;
-          box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
-        }
-
-        .tab-btn.active-gym {
-          background: var(--color-gym-gradient);
-          color: #ffffff;
-          box-shadow: 0 4px 12px rgba(236, 72, 153, 0.3);
-        }
-
-        .tab-btn.active-hr {
-          background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
-          color: #ffffff;
-          box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
-        }
-
-        .hr-zones-list {
-          display: flex;
-          flex-direction: column;
-          gap: 1rem;
-        }
-
-        .hr-zone-item {
-          background: rgba(255, 255, 255, 0.01);
-          border: 1px solid var(--border-light);
-          border-left-width: 4px;
-          padding: 1rem;
-          border-radius: 12px;
-          transition: all var(--transition-normal);
-        }
-
-        .hr-zone-item:hover {
-          background: rgba(255, 255, 255, 0.02);
-          border-color: rgba(255, 255, 255, 0.1);
-        }
-
-        .hr-zone-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 0.5rem;
-          flex-wrap: wrap;
-          gap: 0.5rem;
-        }
-
-        .hr-zone-title-group {
-          display: flex;
-          align-items: center;
-          gap: 0.75rem;
-        }
-
-        .hr-zone-badge {
-          padding: 0.2rem 0.5rem;
-          border-radius: 6px;
-          font-weight: 700;
-          font-size: 0.75rem;
-        }
-
-        .hr-zone-name {
-          font-size: 0.95rem;
-          color: var(--text-primary);
-        }
-
-        .hr-zone-bpm {
-          font-size: 1.05rem;
-          font-weight: 700;
-        }
-
-        .hr-zone-details {
-          font-size: 0.8rem;
-          color: var(--text-secondary);
-          display: flex;
-          flex-direction: column;
-          gap: 0.25rem;
-          line-height: 1.4;
-        }
-
-        .hr-zone-benefit {
-          color: var(--text-muted);
-          font-size: 0.75rem;
-        }
-
-        /* Custom range slider styling */
-        .custom-range-slider {
-          flex: 1;
-          -webkit-appearance: none;
-          background: rgba(255, 255, 255, 0.08);
-          height: 8px;
-          border-radius: 4px;
-          outline: none;
-          transition: background 0.3s;
-        }
-        
-        .custom-range-slider::-webkit-slider-thumb {
-          -webkit-appearance: none;
-          width: 18px;
-          height: 18px;
-          border-radius: 50%;
-          background: ${activeCalculator === 'heartrate' ? '#ef4444' : 'var(--color-gym)'};
-          cursor: pointer;
-          box-shadow: 0 0 10px ${activeCalculator === 'heartrate' ? 'rgba(239, 68, 68, 0.5)' : 'rgba(236, 72, 153, 0.5)'};
-          transition: transform var(--transition-fast);
-        }
-        
-        .custom-range-slider::-webkit-slider-thumb:hover {
-          transform: scale(1.2);
-        }
-
-        /* --- AI Entrenador Virtual por IA Local-Styles --- */
-        .tab-btn.active-ai-coach {
-          background: linear-gradient(135deg, #a855f7 0%, #6366f1 100%) !important;
-          color: #ffffff !important;
-          box-shadow: 0 4px 12px rgba(168, 85, 247, 0.4) !important;
-        }
-
-        .ai-coach-glow-text {
-          color: #a855f7;
-          filter: drop-shadow(0 0 4px rgba(168, 85, 247, 0.5));
-        }
-
-        /* AI Core Styling */
-        .ai-core-visualizer {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          padding: 2.25rem 1.5rem;
-          background: rgba(168, 85, 247, 0.02);
-          border: 1px solid rgba(168, 85, 247, 0.15);
-          border-radius: 16px;
-          margin-bottom: 1.5rem;
-          position: relative;
-          overflow: hidden;
-          text-align: center;
-        }
-
-        .ai-core-brain {
-          width: 74px;
-          height: 74px;
-          border-radius: 50%;
-          background: radial-gradient(circle, rgba(168, 85, 247, 0.25) 0%, rgba(99, 102, 241, 0.05) 70%);
-          border: 2px solid rgba(168, 85, 247, 0.35);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          box-shadow: 0 0 25px rgba(168, 85, 247, 0.35);
-          position: relative;
-          z-index: 2;
-          margin-bottom: 1rem;
-        }
-
-        .ai-brain-icon {
-          color: #a855f7;
-          filter: drop-shadow(0 0 8px #a855f7);
-          animation: float-ai-brain 3s ease-in-out infinite;
-        }
-
-        @keyframes float-ai-brain {
-          0%, 100% { transform: translateY(0) scale(1); }
-          50% { transform: translateY(-4px) scale(1.05); }
-        }
-
-        .ai-core-pulse {
-          position: absolute;
-          width: 90px;
-          height: 90px;
-          border-radius: 50%;
-          border: 1px solid rgba(168, 85, 247, 0.25);
-          animation: core-pulse-animate 3s infinite linear;
-          pointer-events: none;
-          z-index: 1;
-        }
-
-        @keyframes core-pulse-animate {
-          0% { transform: scale(0.6); opacity: 1; }
-          100% { transform: scale(1.6); opacity: 0; }
-        }
-
-        .ai-core-status {
-          font-size: 0.72rem;
-          font-weight: 800;
-          letter-spacing: 0.15em;
-          color: #a855f7;
-          text-shadow: 0 0 8px rgba(168, 85, 247, 0.6);
-          margin-bottom: 0.25rem;
-        }
-
-        .ai-core-telemetry {
-          font-size: 0.65rem;
-          letter-spacing: 0.05em;
-        }
-
-        /* AI dials section */
-        .ai-coach-dials-section {
-          display: flex;
-          flex-direction: column;
-          gap: 1.15rem;
-        }
-
-        .dial-stat-item {
-          background: rgba(255, 255, 255, 0.015);
-          border: 1px solid var(--border-light);
-          padding: 0.85rem;
-          border-radius: 12px;
-        }
-
-        .dial-header {
-          display: flex;
-          justify-content: space-between;
-          margin-bottom: 0.5rem;
-        }
-
-        .dial-label {
-          color: var(--text-secondary);
-        }
-
-        .dial-bar-track {
-          width: 100%;
-          height: 6px;
-          background: rgba(255, 255, 255, 0.05);
-          border-radius: 10px;
-          overflow: hidden;
-          margin-bottom: 0.35rem;
-        }
-
-        .dial-bar-fill {
-          height: 100%;
-          border-radius: 10px;
-          transition: width 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-        }
-
-        .fill-cardio {
-          box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
-        }
-
-        .fill-strength {
-          box-shadow: 0 0 10px rgba(236, 72, 153, 0.4);
-        }
-
-        /* AI Prescription Card */
-        .ai-prescription-card {
-          padding: 1.75rem !important;
-          background: linear-gradient(135deg, rgba(168, 85, 247, 0.04) 0%, rgba(99, 102, 241, 0.01) 100%);
-          border: 1px solid rgba(168, 85, 247, 0.25) !important;
-          box-shadow: 0 8px 32px rgba(168, 85, 247, 0.05), inset 0 0 12px rgba(168, 85, 247, 0.02);
-        }
-
-        .ai-recommendation-badge {
-          padding: 0.3rem 0.75rem;
-          font-size: 0.68rem;
-          font-weight: 800;
-          letter-spacing: 0.08em;
-          border-radius: 20px;
-          border: 1px solid rgba(168, 85, 247, 0.4);
-          background: rgba(168, 85, 247, 0.12);
-          color: #c084fc;
-          display: inline-block;
-          text-shadow: 0 0 4px rgba(168, 85, 247, 0.3);
-        }
-
-        .ai-science-alert {
-          background: rgba(255, 255, 255, 0.015);
-          border: 1px solid var(--border-light);
-          padding: 0.85rem;
-          border-radius: 10px;
-          position: relative;
-          overflow: hidden;
-          margin-top: 1rem;
-        }
-
-        .alert-glow {
-          position: absolute;
-          top: 0;
-          left: 0;
-          width: 3px;
-          height: 100%;
-          background: #a855f7;
-          box-shadow: 0 0 8px #a855f7;
-        }
-
-        /* Muscle state cards */
-        .muscle-status-grid {
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 0.75rem;
-        }
-
-        @media (max-width: 600px) {
-          .muscle-status-grid {
-            grid-template-columns: 1fr;
-          }
-        }
-
-        .muscle-status-card {
-          background: rgba(255, 255, 255, 0.015);
-          border: 1px solid var(--border-light);
-          padding: 0.85rem;
-          border-radius: 10px;
-          transition: transform var(--transition-fast);
-        }
-
-        .muscle-status-card:hover {
-          transform: translateY(-2px);
-          background: rgba(255, 255, 255, 0.025);
-        }
-
-        .muscle-card-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
-
-        .muscle-name {
-          color: var(--text-primary);
-          font-weight: 700;
-        }
-
-        .muscle-desc {
-          color: var(--text-secondary);
-          line-height: 1.35;
-        }
-
-        /* --- ANALIZADOR RIEGEL-COOPER ELITE STYLES --- */
-        .physiological-realism-card {
-          padding: 1.75rem !important;
-          background: linear-gradient(135deg, rgba(139, 92, 246, 0.04) 0%, rgba(6, 182, 212, 0.01) 100%);
-          border: 1px solid rgba(139, 92, 246, 0.25) !important;
-          box-shadow: 0 8px 32px rgba(139, 92, 246, 0.05), inset 0 0 12px rgba(139, 92, 246, 0.02);
-          transition: transform var(--transition-normal), border-color var(--transition-normal);
-        }
-
-        .physiological-realism-card:hover {
-          border-color: rgba(139, 92, 246, 0.4) !important;
-          box-shadow: 0 12px 40px rgba(139, 92, 246, 0.08), inset 0 0 16px rgba(139, 92, 246, 0.04);
-        }
-
-        .bg-purple-glow {
-          border: 1px solid rgba(139, 92, 246, 0.4) !important;
-          background: rgba(139, 92, 246, 0.12) !important;
-          color: #c084fc !important;
-          text-shadow: 0 0 4px rgba(139, 92, 246, 0.3);
-        }
-
-        .bg-green-glow {
-          border: 1px solid rgba(16, 185, 129, 0.4) !important;
-          background: rgba(16, 185, 129, 0.12) !important;
-          color: #34d399 !important;
-          text-shadow: 0 0 4px rgba(16, 185, 129, 0.3);
-        }
-
-        .exponent-comparison-container {
-          background: rgba(255, 255, 255, 0.015);
-          border: 1px solid var(--border-light);
-          padding: 1rem;
-          border-radius: 12px;
-        }
-
-        .comparison-bar-track {
-          width: 100%;
-          height: 10px;
-          background: rgba(255, 255, 255, 0.05);
-          border-radius: 10px;
-          position: relative;
-          overflow: hidden;
-        }
-
-        .comparison-bar-fill-base {
-          position: absolute;
-          left: 0;
-          top: 0;
-          height: 100%;
-          width: 40%;
-          background: #10b981;
-          box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
-          border-radius: 10px 0 0 10px;
-          z-index: 1;
-        }
-
-        .comparison-bar-fill-custom {
-          position: absolute;
-          left: 0;
-          top: 0;
-          height: 100%;
-          background: linear-gradient(90deg, #8b5cf6 0%, #a855f7 100%);
-          box-shadow: 0 0 12px rgba(139, 92, 246, 0.6);
-          border-radius: 10px;
-          z-index: 2;
-          transition: width 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-        }
-
-        .telemetry-bars-grid {
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 1rem;
-        }
-
-        @media (max-width: 600px) {
-          .telemetry-bars-grid {
-            grid-template-columns: 1fr;
-          }
-        }
-
-        .telemetry-bar-item {
-          background: rgba(255, 255, 255, 0.01);
-          border: 1px solid var(--border-light);
-          padding: 0.75rem;
-          border-radius: 10px;
-          display: flex;
-          flex-direction: column;
-          gap: 0.35rem;
-        }
-
-        /* --- Jack Daniels VDOT Dial & Scale --- */
-        .vdot-dial-box {
-          padding: 1.25rem;
-          background: rgba(16, 185, 129, 0.03);
-          border: 1px solid rgba(16, 185, 129, 0.15);
-          border-radius: 16px;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          position: relative;
-          overflow: hidden;
-        }
-
-        .vdot-dial-circle {
-          position: relative;
-          width: 140px;
-          height: 140px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        .vdot-svg {
-          transform: rotate(-90deg);
-          width: 100%;
-          height: 100%;
-        }
-
-        .vdot-track {
-          fill: none;
-          stroke: rgba(255, 255, 255, 0.05);
-          stroke-width: 8;
-        }
-
-        .vdot-indicator {
-          fill: none;
-          stroke: url(#vdotGrad);
-          stroke-width: 8;
-          stroke-linecap: round;
-          transition: stroke-dashoffset 1s ease-out;
-        }
-
-        .vdot-dial-value-container {
-          position: absolute;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          text-align: center;
-        }
-
-        .vdot-dial-label {
-          font-size: 0.7rem;
-          font-weight: 800;
-          letter-spacing: 0.1rem;
-          color: var(--text-muted);
-          text-transform: uppercase;
-        }
-
-        .vdot-dial-value {
-          font-size: 2.2rem;
-          line-height: 1;
-          margin: 0.15rem 0;
-          color: var(--color-running);
-          text-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
-        }
-
-        .vdot-dial-unit {
-          font-size: 0.65rem;
-          color: var(--text-muted);
-        }
-
-        .vdot-elite-scale {
-          width: 100%;
-        }
-
-        /* --- DYNAMIC STRENGTH & FITNESS INTEL ADDITIONS --- */
-        .gym-exercise-selector {
-          display: flex;
-          gap: 0.5rem;
-        }
-
-        .gym-pill-btn {
-          padding: 0.4rem 1rem;
-          border: 1px solid rgba(255, 255, 255, 0.05);
-          background: rgba(255, 255, 255, 0.01);
-          color: var(--text-secondary);
-          font-weight: 700;
-          font-size: 0.78rem;
-          border-radius: 20px;
-          cursor: pointer;
-          transition: all var(--transition-fast);
-        }
-
-        .gym-pill-btn:hover {
-          color: var(--text-primary);
-          background: rgba(255, 255, 255, 0.03);
-          border-color: rgba(255, 255, 255, 0.15);
-        }
-
-        .gym-pill-btn.active-bench {
-          background: rgba(236, 72, 153, 0.12) !important;
-          border-color: rgba(236, 72, 153, 0.4) !important;
-          color: #f472b6 !important;
-          box-shadow: 0 0 10px rgba(236, 72, 153, 0.15);
-        }
-
-        .gym-pill-btn.active-squat {
-          background: rgba(16, 185, 129, 0.12) !important;
-          border-color: rgba(16, 185, 129, 0.4) !important;
-          color: #34d399 !important;
-          box-shadow: 0 0 10px rgba(16, 185, 129, 0.15);
-        }
-
-        .gym-pill-btn.active-deadlift {
-          background: rgba(59, 130, 246, 0.12) !important;
-          border-color: rgba(59, 130, 246, 0.4) !important;
-          color: #60a5fa !important;
-          box-shadow: 0 0 10px rgba(59, 130, 246, 0.15);
-        }
-
-        .bg-gym-badge {
-          border: 1px solid rgba(236, 72, 153, 0.3) !important;
-          background: rgba(236, 72, 153, 0.1) !important;
-          color: #f472b6 !important;
-        }
-
-        .gym-tooltip-card, .fitness-tooltip-card {
-          animation: tooltip-scale 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-        }
-
-        @keyframes tooltip-scale {
-          0% { transform: translate(-50%, -85%) scale(0.9); opacity: 0; }
-          100% { transform: translate(-50%, -100%) scale(1); opacity: 1; }
-        }
-
-        @media (max-width: 768px) {
-          .tsb-grid-mobile {
-            grid-template-columns: 1fr !important;
-          }
-        }
-      `}</style>
+      {/* ACWR WORKLOAD MONITOR VIEW */}
+      {activeCalculator === 'acwr' && (
+        <div className="grid-panels fade-in">
+          {/* Left Column: Interactive Graph & Stats */}
+          <div className="panel-left-group" style={{ gridColumn: 'span 2' }}>
+            
+            {/* Live Telemetry KPI Cards */}
+            <div className="kpi-acwr-grid">
+              
+              <div className="glass-card" style={{ padding: '1.25rem', borderLeft: '4px solid #38bdf8' }}>
+                <div className="text-secondary text-xs font-bold" style={{ textTransform: 'uppercase', letterSpacing: '0.05em' }}>Carga Aguda (7d)</div>
+                <h3 className="text-2xl font-black mt-1 flex-center" style={{ gap: '6px', justifyContent: 'flex-start', margin: '0.25rem 0', fontSize: '1.8rem' }}>
+                  <Zap size={18} style={{ color: '#38bdf8' }} />
+                  {acwrData.current.acute.toFixed(1)}
+                </h3>
+                <p className="text-muted text-xs">Fatiga a corto plazo. Promedio diario de estrés.</p>
+              </div>
+
+              <div className="glass-card" style={{ padding: '1.25rem', borderLeft: '4px solid #10b981' }}>
+                <div className="text-secondary text-xs font-bold" style={{ textTransform: 'uppercase', letterSpacing: '0.05em' }}>Carga Crónica (28d)</div>
+                <h3 className="text-2xl font-black mt-1 flex-center" style={{ gap: '6px', justifyContent: 'flex-start', margin: '0.25rem 0', fontSize: '1.8rem' }}>
+                  <Activity size={18} style={{ color: '#10b981' }} />
+                  {acwrData.current.chronic.toFixed(1)}
+                </h3>
+                <p className="text-muted text-xs">Acondicionamiento a largo plazo (adaptación).</p>
+              </div>
+
+              {(() => {
+                const ratio = acwrData.current.acwr;
+                let zoneColor = '#38bdf8'; // Celeste
+                let zoneName = 'Subentrenamiento';
+                let zoneBg = 'rgba(56, 189, 248, 0.1)';
+                let borderGlow = 'rgba(56, 189, 248, 0.25)';
+
+                if (ratio >= 0.8 && ratio <= 1.3) {
+                  zoneColor = '#10b981'; // Green
+                  zoneName = 'Sweet Spot (Óptimo)';
+                  zoneBg = 'rgba(16, 185, 129, 0.1)';
+                  borderGlow = 'rgba(16, 185, 129, 0.25)';
+                } else if (ratio > 1.3 && ratio <= 1.5) {
+                  zoneColor = '#f59e0b'; // Orange
+                  zoneName = 'Alerta de Carga';
+                  zoneBg = 'rgba(245, 158, 11, 0.1)';
+                  borderGlow = 'rgba(245, 158, 11, 0.25)';
+                } else if (ratio > 1.5) {
+                  zoneColor = '#ef4444'; // Red
+                  zoneName = 'Peligro (Sobreuso)';
+                  zoneBg = 'rgba(239, 68, 68, 0.1)';
+                  borderGlow = 'rgba(239, 68, 68, 0.25)';
+                }
+
+                return (
+                  <div className="glass-card" style={{ padding: '1.25rem', borderLeft: `4px solid ${zoneColor}`, background: zoneBg, borderColor: borderGlow }}>
+                    <div className="text-secondary text-xs font-bold" style={{ textTransform: 'uppercase', letterSpacing: '0.05em' }}>Índice ACWR</div>
+                    <h3 className="text-2xl font-black mt-1 flex-center" style={{ gap: '6px', justifyContent: 'flex-start', margin: '0.25rem 0', color: zoneColor, textShadow: `0 0 10px ${zoneColor}60`, fontSize: '1.8rem' }}>
+                      <Award size={18} />
+                      {ratio.toFixed(2)}
+                    </h3>
+                    <span style={{ fontSize: '0.72rem', fontWeight: 800, color: zoneColor }}>{zoneName}</span>
+                  </div>
+                );
+              })()}
+
+            </div>
+
+            {/* Interactive SVG Graph */}
+            <div className="glass-card" style={{ padding: '1.5rem', width: '100%', position: 'relative' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <div>
+                  <h3 className="panel-title flex-center">
+                    <Activity size={18} style={{ color: '#38bdf8' }} />
+                    Cronología de Carga Aguda:Crónica (Últimos 30 días)
+                  </h3>
+                  <p className="text-muted text-xs">Pasa el cursor por encima del gráfico neón para ver la telemetría diaria.</p>
+                </div>
+                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }} className="acwr-legend">
+                  <span className="flex-center" style={{ fontSize: '0.7rem', gap: '4px' }}><span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#38bdf8' }}></span> &lt;0.8 Celeste</span>
+                  <span className="flex-center" style={{ fontSize: '0.7rem', gap: '4px' }}><span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }}></span> 0.8-1.3 Verde</span>
+                  <span className="flex-center" style={{ fontSize: '0.7rem', gap: '4px' }}><span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#f59e0b' }}></span> 1.3-1.5 Naranja</span>
+                  <span className="flex-center" style={{ fontSize: '0.7rem', gap: '4px' }}><span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444' }}></span> &gt;1.5 Rojo</span>
+                </div>
+              </div>
+
+              {/* Graphic container */}
+              <div style={{ position: 'relative', width: '100%', height: '320px', background: 'rgba(0,0,0,0.15)', borderRadius: '12px', overflow: 'visible', border: '1px solid rgba(255,255,255,0.02)' }}>
+                {acwrData.timeline.length < 2 ? (
+                  <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                    Registra entrenamientos en Supabase en los últimos 30 días para trazar tu curva ACWR.
+                  </div>
+                ) : (() => {
+                  const width = 800;
+                  const height = 320;
+                  const paddingLeft = 40;
+                  const paddingRight = 20;
+                  const paddingTop = 20;
+                  const paddingBottom = 30;
+
+                  const chartWidth = width - paddingLeft - paddingRight;
+                  const chartHeight = height - paddingTop - paddingBottom;
+
+                  const yMax = 2.2;
+                  const yMin = 0.0;
+
+                  const getX = (index) => paddingLeft + (index / 29) * chartWidth;
+                  const getY = (val) => {
+                    const cappedVal = Math.max(yMin, Math.min(yMax, val));
+                    return paddingTop + chartHeight - ((cappedVal - yMin) / (yMax - yMin)) * chartHeight;
+                  };
+
+                  const y0_8 = getY(0.8);
+                  const y1_3 = getY(1.3);
+                  const y1_5 = getY(1.5);
+                  const y2_2 = getY(2.2);
+                  const y0_0 = getY(0.0);
+
+                  let linePath = '';
+                  acwrData.timeline.forEach((pt, idx) => {
+                    const x = getX(idx);
+                    const y = getY(pt.acwr);
+                    if (idx === 0) {
+                      linePath += `M ${x} ${y}`;
+                    } else {
+                      linePath += ` L ${x} ${y}`;
+                    }
+                  });
+
+                  const handleMouseMove = (e) => {
+                    const svgRect = e.currentTarget.getBoundingClientRect();
+                    const mouseX = ((e.clientX - svgRect.left) / svgRect.width) * width;
+                    let closestIdx = 0;
+                    let minDiff = Infinity;
+                    acwrData.timeline.forEach((pt, idx) => {
+                      const x = getX(idx);
+                      const diff = Math.abs(x - mouseX);
+                      if (diff < minDiff) {
+                        minDiff = diff;
+                        closestIdx = idx;
+                      }
+                    });
+                    setHoveredACWRPoint(closestIdx);
+                  };
+
+                  const handleMouseLeave = () => {
+                    setHoveredACWRPoint(null);
+                  };
+
+                  const currentHoverPoint = hoveredACWRPoint !== null ? acwrData.timeline[hoveredACWRPoint] : null;
+
+                  return (
+                    <>
+                      <svg 
+                        viewBox={`0 0 ${width} ${height}`} 
+                        style={{ width: '100%', height: '100%' }}
+                        onMouseMove={handleMouseMove}
+                        onMouseLeave={handleMouseLeave}
+                      >
+                        <defs>
+                          <linearGradient id="subGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.08" />
+                            <stop offset="100%" stopColor="#38bdf8" stopOpacity="0.02" />
+                          </linearGradient>
+                          <linearGradient id="sweetGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#10b981" stopOpacity="0.08" />
+                            <stop offset="100%" stopColor="#10b981" stopOpacity="0.02" />
+                          </linearGradient>
+                          <linearGradient id="alertGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.08" />
+                            <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.02" />
+                          </linearGradient>
+                          <linearGradient id="dangerGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#ef4444" stopOpacity="0.08" />
+                            <stop offset="100%" stopColor="#ef4444" stopOpacity="0.02" />
+                          </linearGradient>
+
+                          <filter id="glow-acwr" x="-20%" y="-20%" width="140%" height="140%">
+                            <feDropShadow dx="0" dy="0" stdDeviation="4" floodColor="#38bdf8" floodOpacity="0.7" />
+                          </filter>
+                        </defs>
+
+                        <rect x={paddingLeft} y={y2_2} width={chartWidth} height={y1_5 - y2_2} fill="url(#dangerGrad)" />
+                        <rect x={paddingLeft} y={y1_5} width={chartWidth} height={y1_3 - y1_5} fill="url(#alertGrad)" />
+                        <rect x={paddingLeft} y={y1_3} width={chartWidth} height={y0_8 - y1_3} fill="url(#sweetGrad)" />
+                        <rect x={paddingLeft} y={y0_8} width={chartWidth} height={y0_0 - y0_8} fill="url(#subGrad)" />
+
+                        <line x1={paddingLeft} y1={y0_8} x2={width - paddingRight} y2={y0_8} stroke="rgba(56, 189, 248, 0.15)" strokeWidth="1" strokeDasharray="3,3" />
+                        <line x1={paddingLeft} y1={y1_3} x2={width - paddingRight} y2={y1_3} stroke="rgba(16, 185, 129, 0.2)" strokeWidth="1" strokeDasharray="3,3" />
+                        <line x1={paddingLeft} y1={y1_5} x2={width - paddingRight} y2={y1_5} stroke="rgba(245, 158, 11, 0.2)" strokeWidth="1" strokeDasharray="3,3" />
+
+                        <line x1={paddingLeft} y1={paddingTop} x2={paddingLeft} y2={height - paddingBottom} stroke="rgba(255,255,255,0.1)" strokeWidth="1.5" />
+                        <line x1={paddingLeft} y1={height - paddingBottom} x2={width - paddingRight} y2={height - paddingBottom} stroke="rgba(255,255,255,0.1)" strokeWidth="1.5" />
+
+                        <text x={paddingLeft - 8} y={y0_0 + 4} fill="rgba(255,255,255,0.4)" fontSize="9" textAnchor="end">0.0</text>
+                        <text x={paddingLeft - 8} y={y0_8 + 4} fill="#38bdf8" fontSize="9" fontWeight="bold" textAnchor="end">0.8</text>
+                        <text x={paddingLeft - 8} y={y1_3 + 4} fill="#10b981" fontSize="9" fontWeight="bold" textAnchor="end">1.3</text>
+                        <text x={paddingLeft - 8} y={y1_5 + 4} fill="#f59e0b" fontSize="9" fontWeight="bold" textAnchor="end">1.5</text>
+                        <text x={paddingLeft - 8} y={y2_2 + 4} fill="#ef4444" fontSize="9" fontWeight="bold" textAnchor="end">2.2</text>
+
+                        {acwrData.timeline.length > 0 && (
+                          <>
+                            <text x={getX(0)} y={height - paddingBottom + 16} fill="rgba(255,255,255,0.4)" fontSize="9" textAnchor="middle">
+                              {(() => {
+                                const parts = acwrData.timeline[0].date.split('-');
+                                return `${parts[2]}/${parts[1]}`;
+                              })()}
+                            </text>
+                            <text x={getX(14)} y={height - paddingBottom + 16} fill="rgba(255,255,255,0.4)" fontSize="9" textAnchor="middle">
+                              {(() => {
+                                const parts = acwrData.timeline[14].date.split('-');
+                                return `${parts[2]}/${parts[1]}`;
+                              })()}
+                            </text>
+                            <text x={getX(29)} y={height - paddingBottom + 16} fill="rgba(255,255,255,0.6)" fontSize="9" fontWeight="bold" textAnchor="middle">
+                              Hoy
+                            </text>
+                          </>
+                        )}
+
+                        <path 
+                          d={linePath} 
+                          fill="none" 
+                          stroke="#38bdf8" 
+                          strokeWidth="3.5" 
+                          strokeLinecap="round" 
+                          strokeLinejoin="round" 
+                          filter="url(#glow-acwr)" 
+                        />
+
+                        {acwrData.timeline.map((pt, idx) => {
+                          const x = getX(idx);
+                          const y = getY(pt.acwr);
+                          const isHovered = hoveredACWRPoint === idx;
+
+                          let circleColor = '#38bdf8';
+                          if (pt.acwr >= 0.8 && pt.acwr <= 1.3) circleColor = '#10b981';
+                          else if (pt.acwr > 1.3 && pt.acwr <= 1.5) circleColor = '#f59e0b';
+                          else if (pt.acwr > 1.5) circleColor = '#ef4444';
+
+                          return (
+                            <circle 
+                              key={idx}
+                              cx={x} 
+                              cy={y} 
+                              r={isHovered ? 6 : 2} 
+                              fill={circleColor} 
+                              stroke="#ffffff"
+                              strokeWidth={isHovered ? 2 : 0}
+                              style={{ transition: 'r 0.1s ease, stroke-width 0.1s ease' }}
+                            />
+                          );
+                        })}
+
+                        {hoveredACWRPoint !== null && (
+                          <line 
+                            x1={getX(hoveredACWRPoint)} 
+                            y1={paddingTop} 
+                            x2={getX(hoveredACWRPoint)} 
+                            y2={height - paddingBottom} 
+                            stroke="rgba(255,255,255,0.15)" 
+                            strokeWidth="1" 
+                            strokeDasharray="2,2" 
+                          />
+                        )}
+
+                      </svg>
+
+                      {currentHoverPoint && (
+                        <div 
+                          className="gym-tooltip-card" 
+                          style={{
+                            position: 'absolute',
+                            left: `${(getX(hoveredACWRPoint) / width) * 100}%`,
+                            top: `${(getY(currentHoverPoint.acwr) / height) * 100 - 15}%`,
+                            transform: 'translate(-50%, -100%)',
+                            background: 'rgba(9, 10, 15, 0.95)',
+                            border: '1px solid var(--border-light)',
+                            padding: '0.75rem 1rem',
+                            borderRadius: '12px',
+                            boxShadow: '0 10px 25px rgba(0,0,0,0.5), 0 0 10px rgba(56, 189, 248, 0.15)',
+                            pointerEvents: 'none',
+                            zIndex: 10,
+                            minWidth: '200px'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '0.25rem', marginBottom: '0.4rem' }}>
+                            <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.4)', fontWeight: 'bold' }}>
+                              {(() => {
+                                const parts = currentHoverPoint.date.split('-');
+                                return `${parts[2]}/${parts[1]}/${parts[0]}`;
+                              })()}
+                            </span>
+                            <span style={{ 
+                              fontSize: '0.65rem', 
+                              fontWeight: 800, 
+                              color: currentHoverPoint.acwr >= 0.8 && currentHoverPoint.acwr <= 1.3 ? '#10b981' : currentHoverPoint.acwr > 1.3 && currentHoverPoint.acwr <= 1.5 ? '#f59e0b' : currentHoverPoint.acwr > 1.5 ? '#ef4444' : '#38bdf8' 
+                            }}>
+                              {currentHoverPoint.acwr >= 0.8 && currentHoverPoint.acwr <= 1.3 ? 'SWEET SPOT' : currentHoverPoint.acwr > 1.3 && currentHoverPoint.acwr <= 1.5 ? 'ALERTA' : currentHoverPoint.acwr > 1.5 ? 'PELIGRO' : 'SUBENTRENADO'}
+                            </span>
+                          </div>
+                          
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                              <span style={{ color: 'rgba(255,255,255,0.6)' }}>Carga Trabajo:</span>
+                              <strong style={{ color: '#ffffff' }}>{currentHoverPoint.workload.toFixed(1)}</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem' }}>
+                              <span style={{ color: 'rgba(255,255,255,0.4)', paddingLeft: '8px' }}>• Running:</span>
+                              <span style={{ color: 'rgba(255,255,255,0.7)' }}>{currentHoverPoint.runningLoad.toFixed(1)}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem' }}>
+                              <span style={{ color: 'rgba(255,255,255,0.4)', paddingLeft: '8px' }}>• Fuerza:</span>
+                              <span style={{ color: 'rgba(255,255,255,0.7)' }}>{currentHoverPoint.gymLoad.toFixed(1)}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginTop: '4px', borderTop: '1px dashed rgba(255,255,255,0.06)', paddingTop: '4px' }}>
+                              <span style={{ color: 'rgba(255,255,255,0.6)' }}>Carga Aguda (7d):</span>
+                              <strong style={{ color: '#38bdf8' }}>{currentHoverPoint.acute.toFixed(1)}</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                              <span style={{ color: 'rgba(255,255,255,0.6)' }}>Carga Crónica (28d):</span>
+                              <strong style={{ color: '#10b981' }}>{currentHoverPoint.chronic.toFixed(1)}</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '4px', marginTop: '2px' }}>
+                              <span style={{ color: '#ffffff', fontWeight: 'bold' }}>ACWR Ratio:</span>
+                              <strong style={{ 
+                                color: currentHoverPoint.acwr >= 0.8 && currentHoverPoint.acwr <= 1.3 ? '#10b981' : currentHoverPoint.acwr > 1.3 && currentHoverPoint.acwr <= 1.5 ? '#f59e0b' : currentHoverPoint.acwr > 1.5 ? '#ef4444' : '#38bdf8', 
+                                fontSize: '0.9rem' 
+                              }}>{currentHoverPoint.acwr.toFixed(2)}</strong>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )();
+                })()}
+              </div>
+
+            </div>
+
+            {/* Sports Medicine Coaching Box */}
+            {(() => {
+              const activePt = hoveredACWRPoint !== null ? acwrData.timeline[hoveredACWRPoint] : acwrData.timeline[acwrData.timeline.length - 1];
+              if (!activePt) return null;
+
+              const ratio = activePt.acwr;
+              let title = 'SUBENTRENAMIENTO (Pérdida de Adaptaciones)';
+              let badgeColor = '#38bdf8';
+              let badgeBg = 'rgba(56, 189, 248, 0.12)';
+              let shadow = 'rgba(56, 189, 248, 0.15)';
+              let desc = 'Tu estímulo agudo reciente es inferior a tu condición adaptativa previa. Esto suele ocurrir tras un periodo vacacional, descarga muy prolongada o abandono transitorio. Consecuencia fisiológica: pérdida gradual de densidad mitocondrial, capilarización esquelética y reclutamiento neuromuscular rápido.';
+              let advice = 'Es seguro y necesario reincorporar volumen paulatinamente. Incrementa tu kilometraje semanal no más de un 10% por mesociclo y reintroduce sesiones de fuerza media en gimnasio para revertir el desentrenamiento.';
+
+              if (ratio >= 0.8 && ratio <= 1.3) {
+                title = 'SWEET SPOT (Estímulo Fisiológico Óptimo)';
+                badgeColor = '#10b981';
+                badgeBg = 'rgba(16, 185, 129, 0.12)';
+                shadow = 'rgba(16, 185, 129, 0.15)';
+                desc = '¡Felicidades! Te encuentras en la zona perfecta de adaptación deportiva y progresión de cargas. El balance entre el estrés acumulado de 7 días y la aclimatación de 28 días es sumamente balanceado. La síntesis de proteínas contráctiles y la biogénesis mitocondrial se desarrollan a máxima velocidad con riesgo de lesión minimizado al extremo.';
+                advice = 'Mantén la regularidad. Es una ventana propicia para asimilar entrenamientos duros planificados, pasadas intensas y levantamientos de fuerza principal. La regeneración celular es óptima.';
+              } else if (ratio > 1.3 && ratio <= 1.5) {
+                title = 'ZONA DE ALERTA DE FATIGA (Riesgo Moderado)';
+                badgeColor = '#f59e0b';
+                badgeBg = 'rgba(245, 158, 11, 0.12)';
+                shadow = 'rgba(245, 158, 11, 0.15)';
+                desc = 'Tu carga de trabajo aguda a corto plazo está escalando de forma agresiva en comparación con tu base crónica. Esto genera fatiga residual en tendones y acumulación de cortisol. Aunque la adaptación continúa, te encuentras en un punto de equilibrio inestable donde cualquier exceso desencadenará lesiones.';
+                advice = 'Prescribe una estabilización del volumen o ligera reducción de intensidad. Evita añadir distancias adicionales o series al fallo en los próximos 3-5 días para permitir la amortiguación del estrés.';
+              } else if (ratio > 1.5) {
+                title = 'ZONA DE PELIGRO DE LESIÓN (Riesgo Exponencial)';
+                badgeColor = '#ef4444';
+                badgeBg = 'rgba(239, 68, 68, 0.12)';
+                shadow = 'rgba(239, 68, 68, 0.15)';
+                desc = '¡Alerta Biomédica de Sobrecarga Aguda! Tu estrés acumulado supera por más del 50% tu base de acondicionamiento histórico. El riesgo de sufrir microdesgarros fibrilares, tendinitis por impacto cardiovascular (como periostitis tibial o fascitis) y fatiga simpática central es estadísticamente extremo. El cuerpo está sobrepasado.';
+                advice = '🛑 REDUCCIÓN INMEDIATA Y DESCARGA ACTIVA. Se prescribe un reposo pasivo de 24 a 48 horas seguido por sesiones regenerativas al 50% de volumen. Aplica masajes de liberación miofascial, duplica tu hidratación y garantiza 8 horas de sueño profundo.';
+              }
+
+              return (
+                <div className="glass-card" style={{ padding: '1.5rem', border: '1px solid rgba(255,255,255,0.05)', background: 'linear-gradient(135deg, rgba(255,255,255,0.015) 0%, rgba(255,255,255,0.005) 100%)', width: '100%' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '0.75rem', marginBottom: '0.75rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Brain size={18} style={{ color: badgeColor }} />
+                      <strong style={{ fontSize: '0.9rem', color: '#ffffff' }}>
+                        {hoveredACWRPoint !== null ? `Diagnóstico Clínico Kinesiológico (${activePt.date})` : 'Diagnóstico Clínico Kinesiológico Actual'}
+                      </strong>
+                    </div>
+                    <span style={{ 
+                      fontSize: '0.7rem', 
+                      fontWeight: 800, 
+                      color: badgeColor, 
+                      background: badgeBg, 
+                      padding: '3px 12px', 
+                      borderRadius: '20px', 
+                      border: `1px solid ${badgeColor}30`,
+                      boxShadow: `0 0 8px ${shadow}`
+                    }}>
+                      {title}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 3fr', gap: '1.5rem', alignItems: 'start' }} className="tsb-grid-mobile">
+                    {/* Dial gauge */}
+                    <div style={{ 
+                      background: 'rgba(0,0,0,0.25)', 
+                      padding: '16px', 
+                      borderRadius: '12px', 
+                      textAlign: 'center',
+                      border: '1px solid rgba(255,255,255,0.03)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'center',
+                      alignItems: 'center'
+                    }}>
+                      <span style={{ fontSize: '0.62rem', color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Ratio ACWR</span>
+                      <h2 style={{ fontSize: '2rem', fontWeight: 950, color: badgeColor, margin: '4px 0', textShadow: `0 0 8px ${badgeColor}50` }}>{ratio.toFixed(2)}</h2>
+                      <span style={{ fontSize: '0.62rem', color: 'rgba(255,255,255,0.4)' }}>
+                        Aguda {activePt.acute.toFixed(1)} / Crónica {activePt.chronic.toFixed(1)}
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <p style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.7)', margin: 0, lineHeight: '1.45' }}>
+                        {desc}
+                      </p>
+                      <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'start', marginTop: '4px' }}>
+                        <ShieldAlert size={14} style={{ color: badgeColor, flexShrink: 0, marginTop: '2px' }} />
+                        <p style={{ fontSize: '0.78rem', color: badgeColor, margin: 0, lineHeight: '1.45', fontWeight: 600 }}>
+                          Prescripción Kinesiológica: {advice}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+          </div>
+        </div>
+      )}
+
+
     </div>
   );
 }

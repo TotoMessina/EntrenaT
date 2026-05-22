@@ -18,7 +18,7 @@ import {
   Copy,
   Bot
 } from 'lucide-react';
-import { secondsToTimeString, formatPace, timeStringToSeconds, calculateDecayedHistoricalRunningMetrics, getRunningExponentDetails, getBestEffortFromSplits } from '../utils/calculators';
+import { secondsToTimeString, formatPace, timeStringToSeconds, calculateDecayedHistoricalRunningMetrics, getRunningExponentDetails, getBestEffortFromSplits, calculate1RM } from '../utils/calculators';
 import { calculateAchievements } from '../utils/achievements';
 
 export default function ReportModal({ workouts, profile, onClose }) {
@@ -102,10 +102,25 @@ export default function ReportModal({ workouts, profile, onClose }) {
   gymSessions.forEach(w => {
     if (w.exercises && Array.isArray(w.exercises)) {
       w.exercises.forEach(ex => {
-        const vol = (Number(ex.sets) || 0) * (Number(ex.reps) || 0) * (Number(ex.weight) || 0);
-        totalVol += vol;
-        if ((Number(ex.weight) || 0) > maxWeight) {
-          maxWeight = Number(ex.weight);
+        if (Array.isArray(ex.sets)) {
+          ex.sets.forEach(s => {
+            if (s.done !== false) {
+              const weightVal = parseFloat(s.weight) || 0;
+              const repsVal = parseFloat(s.reps) || 0;
+              totalVol += weightVal * repsVal;
+              if (weightVal > maxWeight) {
+                maxWeight = weightVal;
+              }
+            }
+          });
+        } else {
+          const setsVal = Number(ex.sets) || 0;
+          const repsVal = Number(ex.reps) || 0;
+          const weightVal = Number(ex.weight) || 0;
+          totalVol += setsVal * repsVal * weightVal;
+          if (weightVal > maxWeight) {
+            maxWeight = weightVal;
+          }
         }
       });
     }
@@ -121,19 +136,38 @@ export default function ReportModal({ workouts, profile, onClose }) {
           const name = (ex.name || '').toLowerCase();
           const matches = keywords.some(keyword => name.includes(keyword));
           if (matches) {
-            const weight = Number(ex.weight) || 0;
-            const reps = Number(ex.reps) || 0;
-            // Scientific Epley Formula: 1RM = W * (1 + R/30)
-            const calculated1RM = weight * (1 + reps / 30);
-            
-            if (calculated1RM > bestLift.oneRepMax) {
-              bestLift = {
-                weight,
-                reps,
-                exerciseName: ex.name,
-                date: w.date,
-                oneRepMax: calculated1RM
-              };
+            if (Array.isArray(ex.sets)) {
+              ex.sets.forEach(s => {
+                if (s.done !== false) {
+                  const weight = Number(s.weight) || 0;
+                  const reps = Number(s.reps) || 0;
+                  const calculated1RM = calculate1RM(weight, reps, s.rpe);
+                  
+                  if (calculated1RM > bestLift.oneRepMax) {
+                    bestLift = {
+                      weight,
+                      reps,
+                      exerciseName: ex.name,
+                      date: w.date,
+                      oneRepMax: calculated1RM
+                    };
+                  }
+                }
+              });
+            } else {
+              const weight = Number(ex.weight) || 0;
+              const reps = Number(ex.reps) || 0;
+              const calculated1RM = calculate1RM(weight, reps, ex.rpe || w.rpe);
+              
+              if (calculated1RM > bestLift.oneRepMax) {
+                bestLift = {
+                  weight,
+                  reps,
+                  exerciseName: ex.name,
+                  date: w.date,
+                  oneRepMax: calculated1RM
+                };
+              }
             }
           }
         });
@@ -304,12 +338,24 @@ export default function ReportModal({ workouts, profile, onClose }) {
           w.splits.forEach(s => md += `  - Km ${s.splitNumber || s.km}: ${s.time} (Distancia: ${s.distance ? s.distance + 'm' : '1000m'})\n`);
         }
       } else {
-        md += `- Enfoque Muscular: ${w.muscleGroup || 'Full Body'}\n`;
+        md += `- Enfoque Muscular: ${(w.trainedMuscles && w.trainedMuscles.length > 0) ? w.trainedMuscles.join(', ') : (w.muscleGroup || 'Full Body')}\n`;
         if (w.rpe) md += `- RPE (Esfuerzo Percibido): ${w.rpe}/10\n`;
         if (w.exercises && w.exercises.length > 0) {
           md += `- Rutina Ejercutada:\n`;
           w.exercises.forEach(ex => {
-            md += `  - ${ex.name}: ${ex.sets}x${ex.reps} @ ${ex.weight} kg (RPE ${ex.rpe || w.rpe || '-'}) \n`;
+            if (Array.isArray(ex.sets)) {
+              const setsStr = ex.sets.map((s, sIdx) => {
+                const isWarmup = s.type === 'warmup';
+                const typeText = isWarmup ? 'Calentamiento' : `Serie ${sIdx + 1}`;
+                const rpeText = s.rpe ? `, RPE ${s.rpe}` : '';
+                const restText = s.rest ? `, Descanso ${s.rest}s` : '';
+                const doneText = s.done ? '' : ' [No completada]';
+                return `${s.reps}x${s.weight}kg (${typeText}${rpeText}${restText})${doneText}`;
+              }).join(' | ');
+              md += `  - ${ex.name}: [${setsStr}] \n`;
+            } else {
+              md += `  - ${ex.name}: ${ex.sets}x${ex.reps} @ ${ex.weight} kg (RPE ${ex.rpe || w.rpe || '-'}) \n`;
+            }
           });
         }
       }
@@ -635,7 +681,7 @@ export default function ReportModal({ workouts, profile, onClose }) {
                       </tbody>
                     </table>
                     <div style={{ marginTop: '0.65rem', background: 'rgba(255,255,255,0.015)', padding: '0.65rem 0.85rem', borderRadius: '6px', fontSize: '0.72rem', color: 'var(--text-secondary)', borderLeft: '3px solid var(--color-primary)' }}>
-                      <strong>Nota Metodológica de Fuerza:</strong> El 1RM (Una Repetición Máxima) Teórica se estima de forma matemática utilizando la fórmula científica de Epley: <code>1RM = Peso × (1 + Repeticiones / 30)</code>. Las equivalencias y el volumen se procesan en el periodo del reporte para calcular tu carga de fuerza absoluta.
+                      <strong>Nota Metodológica de Fuerza:</strong> El 1RM (Una Repetición Máxima) se estima utilizando los modelos científicos de Epley y Brzycki con corrección dinámica de RPE/RIR (Esfuerzo Percibido / Repeticiones en Reserva) para una precisión de grado profesional. Las equivalencias y el volumen se procesan en el período del reporte para calcular tu carga de fuerza absoluta.
                     </div>
                   </div>
                 </div>

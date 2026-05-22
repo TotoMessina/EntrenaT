@@ -165,10 +165,25 @@ export default function Overview({ workouts, setActiveTab, onAddWorkoutClick, on
   gymWorkouts.forEach(w => {
     if (w.exercises && Array.isArray(w.exercises)) {
       w.exercises.forEach(ex => {
-        const vol = (Number(ex.sets) || 0) * (Number(ex.reps) || 0) * (Number(ex.weight) || 0);
-        totalVolume += vol;
-        if ((Number(ex.weight) || 0) > peakWeight) {
-          peakWeight = Number(ex.weight);
+        if (Array.isArray(ex.sets)) {
+          ex.sets.forEach(s => {
+            if (s.done !== false) {
+              const weightVal = parseFloat(s.weight) || 0;
+              const repsVal = parseFloat(s.reps) || 0;
+              totalVolume += weightVal * repsVal;
+              if (weightVal > peakWeight) {
+                peakWeight = weightVal;
+              }
+            }
+          });
+        } else {
+          const setsVal = Number(ex.sets) || 0;
+          const repsVal = Number(ex.reps) || 0;
+          const weightVal = Number(ex.weight) || 0;
+          totalVolume += setsVal * repsVal * weightVal;
+          if (weightVal > peakWeight) {
+            peakWeight = weightVal;
+          }
         }
       });
     }
@@ -211,7 +226,23 @@ export default function Overview({ workouts, setActiveTab, onAddWorkoutClick, on
         } else if (hasGym) {
           type = 'gym';
           const vol = dayWorkouts.reduce((sum, w) => {
-            return sum + (w.exercises?.reduce((s, ex) => s + ex.sets * ex.reps * ex.weight, 0) || 0);
+            return sum + (w.exercises?.reduce((s, ex) => {
+              if (Array.isArray(ex.sets)) {
+                return s + ex.sets.reduce((exSum, set) => {
+                  if (set.done !== false) {
+                    const weightVal = parseFloat(set.weight) || 0;
+                    const repsVal = parseFloat(set.reps) || 0;
+                    return exSum + (weightVal * repsVal);
+                  }
+                  return exSum;
+                }, 0);
+              } else {
+                const setsVal = Number(ex.sets) || 0;
+                const repsVal = Number(ex.reps) || 0;
+                const weightVal = Number(ex.weight) || 0;
+                return s + (setsVal * repsVal * weightVal);
+              }
+            }, 0) || 0);
           }, 0);
           level = vol > 4000 ? '4' : vol > 2500 ? '3' : vol > 1000 ? '2' : '1';
           title = `${date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}: Gimnasio (Volumen: ${vol} kg)`;
