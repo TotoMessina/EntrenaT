@@ -12,6 +12,7 @@ import ConfettiCanvas from './components/ConfettiCanvas';
 import NutritionView from './components/NutritionView';
 import ReportModal from './components/ReportModal';
 import PerformanceHub from './components/PerformanceHub';
+import SocialHub from './components/SocialHub';
 import { useAppData } from './hooks/useAppData';
 import { calculateActiveStreak } from './utils/achievements';
 import CustomDialog from './components/CustomDialog';
@@ -40,6 +41,8 @@ export default function App() {
     handleUpdateNutrition, handleUpdateShoes, handleUpdatePlans,
     handleUpdateReadinessLogs, handleProfileChange,
     handleUpdateAllWorkouts, handleResetMockData,
+    // COMUNIDAD
+    searchUsers, sendFriendRequest, acceptFriendRequest, removeFriend, fetchFriendsList, fetchFriendData,
   } = useAppData();
 
   // ── Estado de UI puro (navegación, tema, modales) ──
@@ -48,6 +51,30 @@ export default function App() {
   const [addWorkoutPreset, setAddWorkoutPreset] = useState(null);
   const [isReportOpen, setIsReportOpen] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem('fitanalytics_theme') || 'dark');
+  const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
+
+  // Escuchar solicitudes pendientes en segundo plano
+  useEffect(() => {
+    let active = true;
+    const updateCount = async () => {
+      try {
+        const list = await fetchFriendsList();
+        if (active) {
+          const incomingPending = list.filter(f => f.status === 'pending' && !f.isSender).length;
+          setPendingRequestsCount(incomingPending);
+        }
+      } catch (e) {
+        console.error('Failed to get pending requests count:', e);
+      }
+    };
+    
+    updateCount();
+    const interval = setInterval(updateCount, 15000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [fetchFriendsList, activeTab]);
 
   const handleOpenAddWorkout = (preset = null) => {
     setAddWorkoutPreset(preset);
@@ -78,6 +105,7 @@ export default function App() {
         return (
           <WorkoutsLog
             workouts={workouts}
+            shoes={shoes}
             onDeleteWorkout={handleDeleteWorkout}
             onUpdateWorkout={handleUpdateWorkout}
             onUpdateAllWorkouts={handleUpdateAllWorkouts}
@@ -119,6 +147,20 @@ export default function App() {
             workouts={workouts}
             profile={profile}
             onProfileChange={handleProfileChange}
+          />
+        );
+      case 'social':
+        return (
+          <SocialHub
+            user={user}
+            searchUsers={searchUsers}
+            sendFriendRequest={sendFriendRequest}
+            acceptFriendRequest={acceptFriendRequest}
+            removeFriend={removeFriend}
+            fetchFriendsList={fetchFriendsList}
+            fetchFriendData={fetchFriendData}
+            showAlert={showAlert}
+            showConfirm={showConfirm}
           />
         );
       case 'data':
@@ -241,6 +283,7 @@ export default function App() {
           onLogout={handleLogout}
           workouts={workouts}
           onOpenReport={() => setIsReportOpen(true)}
+          pendingRequestsCount={pendingRequestsCount}
         />
 
         {/* Main page content area */}

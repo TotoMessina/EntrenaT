@@ -47,6 +47,8 @@ export default function AchievementsView({ workouts, profile, onProfileChange })
   // Estados del Formulario de Perfil Deportivo
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({
+    displayName: profile?.displayName || '',
+    username: profile?.username || '',
     age: profile?.age || 25,
     weight: profile?.weight || 75,
     height: profile?.height || 175,
@@ -58,6 +60,8 @@ export default function AchievementsView({ workouts, profile, onProfileChange })
   useEffect(() => {
     if (profile) {
       setFormData({
+        displayName: profile.displayName || '',
+        username: profile.username || '',
         age: profile.age,
         weight: profile.weight,
         height: profile.height,
@@ -71,7 +75,7 @@ export default function AchievementsView({ workouts, profile, onProfileChange })
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: name === 'gender' ? value : Number(value)
+      [name]: ['gender', 'displayName', 'username'].includes(name) ? value : Number(value)
     }));
   };
 
@@ -85,6 +89,8 @@ export default function AchievementsView({ workouts, profile, onProfileChange })
 
   const handleCancel = () => {
     setFormData({
+      displayName: profile.displayName || '',
+      username: profile.username || '',
       age: profile.age,
       weight: profile.weight,
       height: profile.height,
@@ -174,8 +180,8 @@ export default function AchievementsView({ workouts, profile, onProfileChange })
               <User size={24} className="avatar-icon" />
             </div>
             <div>
-              <h2 className="profile-title">Ficha Deportiva</h2>
-              <span className="profile-tag">Atleta Amateur Avanzado</span>
+              <h2 className="profile-title">{profile.displayName || 'Invitado'}</h2>
+              <span className="profile-tag">@{profile.username || 'invitado'}</span>
             </div>
             {!isEditing && (
               <button 
@@ -192,6 +198,36 @@ export default function AchievementsView({ workouts, profile, onProfileChange })
           {isEditing ? (
             <form onSubmit={handleSave} className="profile-form">
               <div className="form-grid">
+                <div className="form-group-custom">
+                  <label className="form-label-custom">
+                    <User size={14} className="input-icon" /> Nombre
+                  </label>
+                  <input
+                    type="text"
+                    name="displayName"
+                    required
+                    value={formData.displayName}
+                    onChange={handleChange}
+                    className="form-input-custom"
+                    placeholder="Tu nombre completo"
+                  />
+                </div>
+
+                <div className="form-group-custom">
+                  <label className="form-label-custom">
+                    <Sparkles size={14} className="input-icon" /> Nombre de Usuario
+                  </label>
+                  <input
+                    type="text"
+                    name="username"
+                    required
+                    value={formData.username}
+                    onChange={handleChange}
+                    className="form-input-custom"
+                    placeholder="nombre_usuario"
+                  />
+                </div>
+
                 <div className="form-group-custom">
                   <label className="form-label-custom">
                     <Calendar size={14} className="input-icon" /> Edad (años)

@@ -41,6 +41,7 @@ export default function PerformanceHub({
             profile={profile}
             plans={plans} 
             onUpdatePlans={onUpdatePlans} 
+            readinessLogs={readinessLogs}
           />
         );
       case 'shoes':

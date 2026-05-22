@@ -24,6 +24,51 @@ const readLocalJSON = (key, defaultValue) => {
  * HIGH-01: Extrae el God Component App.jsx en hook reutilizable.
  * HIGH-06: Estado inicializado una sola vez vía lazy initializers (no doble-read).
  */
+
+const generateFriendWorkouts = (friendId) => {
+  if (friendId === 'mock-friend-juan') {
+    return [
+      { id: 'w-j-1', type: 'Running', date: '2026-05-21', distance: 12, duration: '00:54:30', heartRate: 145, rpe: 6, notes: 'Trote aeróbico cómodo, buenas sensaciones.', terrain: 'Asfalto' },
+      { id: 'w-j-2', type: 'Running', date: '2026-05-19', distance: 8, duration: '00:34:10', heartRate: 162, rpe: 8, notes: 'Series de 1000m en pista. Ritmo promedio 3:55/km.', terrain: 'Pista' },
+      { id: 'w-j-3', type: 'Running', date: '2026-05-17', distance: 21.1, duration: '01:38:00', heartRate: 150, rpe: 7, notes: 'Fondo largo dominical en zona 2/3.', terrain: 'Asfalto' },
+      { id: 'w-j-4', type: 'Running', date: '2026-05-14', distance: 10, duration: '00:45:00', heartRate: 142, rpe: 5, notes: 'Trote regenerativo.', terrain: 'Asfalto' },
+      { id: 'w-j-5', type: 'Strength', date: '2026-05-13', sessionName: 'Fuerza Piernas', muscleGroup: 'Piernas', exercises: [{ name: 'Sentadillas', sets: 4, reps: 10, weight: 80 }, { name: 'Prensa', sets: 3, reps: 12, weight: 140 }], notes: 'Enfoque en potencia.' }
+    ];
+  } else if (friendId === 'mock-friend-sofia') {
+    return [
+      { id: 'w-s-1', type: 'Running', date: '2026-05-20', distance: 8, duration: '00:42:00', heartRate: 138, rpe: 5, notes: 'Trote suave regenerativo post-carrera.', terrain: 'Tierra' },
+      { id: 'w-s-2', type: 'Running', date: '2026-05-18', distance: 15, duration: '01:18:20', heartRate: 146, rpe: 7, notes: 'Carrera tempo sostenido. Excelente clima.', terrain: 'Parque' },
+      { id: 'w-s-3', type: 'Running', date: '2026-05-16', distance: 6, duration: '00:30:15', heartRate: 155, rpe: 8, notes: 'Cuestas de 200m en parque.', terrain: 'Parque' },
+      { id: 'w-s-4', type: 'Running', date: '2026-05-13', distance: 12, duration: '01:03:00', heartRate: 140, rpe: 6, notes: 'Trote base.', terrain: 'Asfalto' }
+    ];
+  } else {
+    return [
+      { id: 'w-c-1', type: 'Running', date: '2026-05-20', distance: 10, duration: '00:50:00', heartRate: 140, rpe: 6, notes: 'Trote básico en parque.', terrain: 'Parque' }
+    ];
+  }
+};
+
+const generateFriendReadiness = (friendId) => {
+  return [
+    { date: '2026-05-22', sleep: 8, soreness: 2, resting_hr: 54, hrv: 75, notes: 'Descansado y listo para correr.' },
+    { date: '2026-05-21', sleep: 7, soreness: 3, resting_hr: 56, hrv: 68, notes: 'Algo de fatiga en pantorrillas.' }
+  ];
+};
+
+const generateFriendProfile = (friendId) => {
+  if (friendId === 'mock-friend-juan') {
+    return { age: 29, weight: 70, height: 178, restingHR: 52, gender: 'male', displayName: 'Juan Pérez', username: 'juan_vdot52' };
+  } else if (friendId === 'mock-friend-sofia') {
+    return { age: 26, weight: 58, height: 165, restingHR: 50, gender: 'female', displayName: 'Sofía Gómez', username: 'sofia_runner' };
+  } else if (friendId === 'mock-user-carlos') {
+    return { age: 35, weight: 74, height: 176, restingHR: 54, gender: 'male', displayName: 'Carlos Silva', username: 'carlos_maraton' };
+  } else if (friendId === 'mock-user-ana') {
+    return { age: 31, weight: 54, height: 160, restingHR: 48, gender: 'female', displayName: 'Ana Martínez', username: 'ana_ultra' };
+  } else {
+    return { age: 30, weight: 72, height: 172, restingHR: 58, gender: 'male', displayName: 'Atleta Pro', username: 'atleta_pro' };
+  }
+};
+
 export function useAppData() {
 
   // ── ESTADO DE DATOS (HIGH-06: lazy initializers = único read de localStorage) ──
@@ -48,6 +93,9 @@ export function useAppData() {
     height:    Number(localStorage.getItem('fitanalytics_profile_height'))   || 175,
     restingHR: Number(localStorage.getItem('fitanalytics_profile_resting_hr')) || 60,
     gender:    localStorage.getItem('fitanalytics_profile_gender') || 'male',
+    displayName: localStorage.getItem('fitanalytics_profile_display_name') || 'Invitado',
+    username:  localStorage.getItem('fitanalytics_profile_username') || 'invitado',
+    email:     '',
   }));
 
   // ── ESTADO DE AUTENTICACIÓN / NUBE ──
@@ -175,9 +223,23 @@ export function useAppData() {
           height:    Number(remoteProfile.height)    || 175,
           restingHR: Number(remoteProfile.restingHR) || 60,
           gender:    remoteProfile.gender || 'male',
+          displayName: remoteProfile.display_name || activeUser.email?.split('@')[0] || 'Atleta',
+          username:  remoteProfile.username || activeUser.email?.split('@')[0].replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || 'atleta',
+          email:     remoteProfile.email || activeUser.email || '',
         };
       } else {
-        const defaultProfile = { age: 25, weight: 75, height: 175, restingHR: 60, gender: 'male' };
+        const initialDisplayName = activeUser.email ? activeUser.email.split('@')[0] : 'Atleta';
+        const initialUsername = activeUser.email ? activeUser.email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '').toLowerCase() : 'atleta_' + activeUser.id.substring(0, 5);
+        const defaultProfile = {
+          age: 25,
+          weight: 75,
+          height: 175,
+          restingHR: 60,
+          gender: 'male',
+          displayName: initialDisplayName,
+          username: initialUsername,
+          email: activeUser.email || '',
+        };
         const { error: insertError } = await client.from('profiles').insert({
           user_id:   activeUser.id,
           age:       Number(defaultProfile.age),
@@ -185,13 +247,16 @@ export function useAppData() {
           height:    Number(defaultProfile.height),
           restingHR: Number(defaultProfile.restingHR),
           gender:    defaultProfile.gender,
+          display_name: defaultProfile.displayName,
+          username:    defaultProfile.username,
+          email:       defaultProfile.email,
         });
         if (insertError) throw insertError;
         return defaultProfile;
       }
     } catch (e) {
       console.error('Supabase profile sync failed:', e);
-      return { age: 25, weight: 75, height: 175, restingHR: 60, gender: 'male' };
+      return { age: 25, weight: 75, height: 175, restingHR: 60, gender: 'male', displayName: 'Atleta', username: 'atleta', email: '' };
     }
   };
 
@@ -556,14 +621,23 @@ export function useAppData() {
       localStorage.setItem('fitanalytics_profile_height',     newProfile.height.toString());
       localStorage.setItem('fitanalytics_profile_resting_hr', newProfile.restingHR.toString());
       localStorage.setItem('fitanalytics_profile_gender',     newProfile.gender);
+      if (newProfile.displayName) localStorage.setItem('fitanalytics_profile_display_name', newProfile.displayName);
+      if (newProfile.username) localStorage.setItem('fitanalytics_profile_username', newProfile.username);
     }
     const client = getSupabase();
     if (client && user) {
       try {
         const { error } = await client.from('profiles').upsert({
-          user_id: user.id, age: Number(newProfile.age), weight: Number(newProfile.weight),
-          height: Number(newProfile.height), restingHR: Number(newProfile.restingHR),
-          gender: newProfile.gender, updated_at: new Date().toISOString(),
+          user_id: user.id,
+          age: Number(newProfile.age),
+          weight: Number(newProfile.weight),
+          height: Number(newProfile.height),
+          restingHR: Number(newProfile.restingHR),
+          gender: newProfile.gender,
+          display_name: newProfile.displayName,
+          username: newProfile.username,
+          email: newProfile.email || user.email || '',
+          updated_at: new Date().toISOString(),
         });
         if (error) throw error;
       } catch (e) { console.error('Supabase profile upsert error:', e); }
@@ -618,7 +692,306 @@ export function useAppData() {
     }
   }, [user, showConfirm, showAlert]);
 
+  // ── FUNCIONES DE COMUNIDAD Y AMISTADES (BÚSQUEDA Y SEGUIMIENTO) ──
+  const searchUsers = useCallback(async (queryStr) => {
+    if (!queryStr || queryStr.trim().length < 2) return [];
+    const term = queryStr.trim().toLowerCase();
+
+    if (!user) {
+      const staticMockAthletes = [
+        { user_id: 'mock-user-carlos', display_name: 'Carlos Silva', username: 'carlos_maraton', email: 'carlos@fitanalytics.com' },
+        { user_id: 'mock-user-ana', display_name: 'Ana Martínez', username: 'ana_ultra', email: 'ana@fitanalytics.com' },
+        { user_id: 'mock-user-pedro', display_name: 'Pedro Rossi', username: 'pedro_triatleta', email: 'pedro@fitanalytics.com' }
+      ];
+      return staticMockAthletes.filter(athlete => 
+        athlete.display_name.toLowerCase().includes(term) ||
+        athlete.username.toLowerCase().includes(term) ||
+        athlete.email.toLowerCase().includes(term)
+      );
+    }
+
+    const client = getSupabase();
+    if (!client) return [];
+    try {
+      const { data, error } = await client
+        .from('profiles')
+        .select('user_id, display_name, username, email')
+        .neq('user_id', user.id)
+        .or(`display_name.ilike.%${term}%,username.ilike.%${term}%,email.ilike.%${term}%`)
+        .limit(10);
+      if (error) throw error;
+      return data || [];
+    } catch (e) {
+      console.error('Error searching users:', e);
+      return [];
+    }
+  }, [user]);
+
+  const sendFriendRequest = useCallback(async (friendId) => {
+    if (!user) {
+      const stored = localStorage.getItem('fitanalytics_mock_friends');
+      let currentFriends = [];
+      if (stored) {
+        try { currentFriends = JSON.parse(stored); } catch { }
+      }
+      if (currentFriends.some(f => f.friendId === friendId)) return { success: true };
+
+      const staticMockAthletes = [
+        { userId: 'mock-user-carlos', display_name: 'Carlos Silva', username: 'carlos_maraton', email: 'carlos@fitanalytics.com' },
+        { userId: 'mock-user-ana', display_name: 'Ana Martínez', username: 'ana_ultra', email: 'ana@fitanalytics.com' },
+        { userId: 'mock-user-pedro', display_name: 'Pedro Rossi', username: 'pedro_triatleta', email: 'pedro@fitanalytics.com' }
+      ];
+      const match = staticMockAthletes.find(a => a.userId === friendId);
+      if (match) {
+        currentFriends.push({
+          friendId: match.userId,
+          status: 'pending',
+          isSender: true,
+          profile: { userId: match.userId, displayName: match.display_name, username: match.username, email: match.email }
+        });
+        localStorage.setItem('fitanalytics_mock_friends', JSON.stringify(currentFriends));
+      }
+      return { success: true };
+    }
+
+    const client = getSupabase();
+    if (!client) return { success: false, message: 'Supabase no conectado' };
+    try {
+      const { error } = await client.from('friendships').insert({
+        user_id: user.id,
+        friend_id: friendId,
+        status: 'pending'
+      });
+      if (error) throw error;
+      return { success: true };
+    } catch (e) {
+      console.error('Error sending friend request:', e);
+      return { success: false, message: e.message };
+    }
+  }, [user]);
+
+  const acceptFriendRequest = useCallback(async (senderId) => {
+    if (!user) {
+      const stored = localStorage.getItem('fitanalytics_mock_friends');
+      if (stored) {
+        try {
+          let currentFriends = JSON.parse(stored);
+          const idx = currentFriends.findIndex(f => f.friendId === senderId);
+          if (idx !== -1) {
+            currentFriends[idx].status = 'accepted';
+            localStorage.setItem('fitanalytics_mock_friends', JSON.stringify(currentFriends));
+          }
+        } catch { }
+      }
+      return { success: true };
+    }
+
+    const client = getSupabase();
+    if (!client) return { success: false, message: 'Supabase no conectado' };
+    try {
+      const { error } = await client
+        .from('friendships')
+        .update({ status: 'accepted' })
+        .eq('user_id', senderId)
+        .eq('friend_id', user.id);
+      if (error) throw error;
+      return { success: true };
+    } catch (e) {
+      console.error('Error accepting friend request:', e);
+      return { success: false, message: e.message };
+    }
+  }, [user]);
+
+  const removeFriend = useCallback(async (friendId) => {
+    if (!user) {
+      const stored = localStorage.getItem('fitanalytics_mock_friends');
+      if (stored) {
+        try {
+          let currentFriends = JSON.parse(stored);
+          const updated = currentFriends.filter(f => f.friendId !== friendId);
+          localStorage.setItem('fitanalytics_mock_friends', JSON.stringify(updated));
+        } catch { }
+      }
+      return { success: true };
+    }
+
+    const client = getSupabase();
+    if (!client) return { success: false, message: 'Supabase no conectado' };
+    try {
+      const { error } = await client
+        .from('friendships')
+        .delete()
+        .or(`and(user_id.eq.${user.id},friend_id.eq.${friendId}),and(user_id.eq.${friendId},friend_id.eq.${user.id})`);
+      if (error) throw error;
+      return { success: true };
+    } catch (e) {
+      console.error('Error removing friend:', e);
+      return { success: false, message: e.message };
+    }
+  }, [user]);
+
+  const fetchFriendsList = useCallback(async () => {
+    if (!user) {
+      const stored = localStorage.getItem('fitanalytics_mock_friends');
+      if (stored) {
+        try { return JSON.parse(stored); } catch { }
+      }
+      const defaultMocks = [
+        {
+          friendId: 'mock-friend-juan',
+          status: 'accepted',
+          isSender: true,
+          profile: { userId: 'mock-friend-juan', displayName: 'Juan Pérez', username: 'juan_vdot52', email: 'juan@fitanalytics.com' }
+        },
+        {
+          friendId: 'mock-friend-sofia',
+          status: 'accepted',
+          isSender: false,
+          profile: { userId: 'mock-friend-sofia', displayName: 'Sofía Gómez', username: 'sofia_runner', email: 'sofia@fitanalytics.com' }
+        }
+      ];
+      localStorage.setItem('fitanalytics_mock_friends', JSON.stringify(defaultMocks));
+      return defaultMocks;
+    }
+
+    const client = getSupabase();
+    if (!client) return [];
+    try {
+      const { data: sent, error: errSent } = await client
+        .from('friendships')
+        .select('friend_id, status')
+        .eq('user_id', user.id);
+      
+      const { data: received, error: errRecv } = await client
+        .from('friendships')
+        .select('user_id, status')
+        .eq('friend_id', user.id);
+
+      if (errSent) throw errSent;
+      if (errRecv) throw errRecv;
+
+      const friendIds = [
+        ...(sent || []).map(f => f.friend_id),
+        ...(received || []).map(f => f.user_id)
+      ];
+
+      const profilesMap = {};
+      if (friendIds.length > 0) {
+        const { data: profiles, error: errProf } = await client
+          .from('profiles')
+          .select('user_id, display_name, username, email')
+          .in('user_id', friendIds);
+        
+        if (errProf) throw errProf;
+        
+        (profiles || []).forEach(p => {
+          profilesMap[p.user_id] = p;
+        });
+      }
+
+      const list = [];
+      sent?.forEach(f => {
+        const prof = profilesMap[f.friend_id];
+        if (prof) {
+          list.push({
+            friendId: f.friend_id,
+            status: f.status,
+            isSender: true,
+            profile: {
+              userId: prof.user_id,
+              displayName: prof.display_name || prof.email?.split('@')[0] || 'Atleta',
+              username: prof.username || 'atleta',
+              email: prof.email || ''
+            }
+          });
+        }
+      });
+
+      received?.forEach(f => {
+        const prof = profilesMap[f.user_id];
+        if (prof) {
+          list.push({
+            friendId: f.user_id,
+            status: f.status,
+            isSender: false,
+            profile: {
+              userId: prof.user_id,
+              displayName: prof.display_name || prof.email?.split('@')[0] || 'Atleta',
+              username: prof.username || 'atleta',
+              email: prof.email || ''
+            }
+          });
+        }
+      });
+      return list;
+    } catch (e) {
+      console.error('Error fetching friends:', e);
+      return [];
+    }
+  }, [user]);
+
+  const fetchFriendData = useCallback(async (friendId) => {
+    if (!user) {
+      return {
+        workouts: generateFriendWorkouts(friendId),
+        readinessLogs: generateFriendReadiness(friendId),
+        profile: generateFriendProfile(friendId)
+      };
+    }
+
+    const client = getSupabase();
+    if (!client) return null;
+    try {
+      const [workoutsRes, readinessRes, profileRes] = await Promise.all([
+        client.from('workouts').select('*').eq('user_id', friendId),
+        client.from('readiness_logs').select('*').eq('user_id', friendId),
+        client.from('profiles').select('*').eq('user_id', friendId).maybeSingle()
+      ]);
+
+      if (workoutsRes.error) throw workoutsRes.error;
+      if (readinessRes.error) throw readinessRes.error;
+      if (profileRes.error) throw profileRes.error;
+
+      const friendWorkouts = (workoutsRes.data || []).map(supabaseRowToWorkout);
+      friendWorkouts.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+      const friendReadiness = (readinessRes.data || []).map(remote => ({
+        date: remote.date,
+        sleep: Number(remote.sleep) || 4,
+        soreness: Number(remote.soreness) || 2,
+        resting_hr: Number(remote.resting_hr) || 60,
+        hrv: remote.hrv ? Number(remote.hrv) : null,
+        notes: remote.notes || ''
+      }));
+
+      const friendProfile = profileRes.data ? {
+        age: Number(profileRes.data.age) || 25,
+        weight: Number(profileRes.data.weight) || 75,
+        height: Number(profileRes.data.height) || 175,
+        restingHR: Number(profileRes.data.restingHR) || 60,
+        gender: profileRes.data.gender || 'male',
+        displayName: profileRes.data.display_name || '',
+        username: profileRes.data.username || '',
+        email: profileRes.data.email || ''
+      } : null;
+
+      return {
+        workouts: friendWorkouts,
+        readinessLogs: friendReadiness,
+        profile: friendProfile
+      };
+    } catch (e) {
+      console.error('Error fetching friend data details:', e);
+      return null;
+    }
+  }, [user]);
+
   // ── RETORNO PÚBLICO DEL HOOK ──
+  console.log("DEBUG [useAppData]: Hook executes. fetchFriendsList exists?", typeof fetchFriendsList === 'function', {
+    fetchFriendsList: typeof fetchFriendsList,
+    searchUsers: typeof searchUsers
+  });
+
   return {
     // Estado de datos
     workouts, shoes, plans, readinessLogs, nutritionLogs, profile,
@@ -638,5 +1011,7 @@ export function useAppData() {
     handleUpdateNutrition, handleUpdateShoes, handleUpdatePlans,
     handleUpdateReadinessLogs, handleProfileChange,
     handleUpdateAllWorkouts, handleResetMockData,
+    // COMUNIDAD
+    searchUsers, sendFriendRequest, acceptFriendRequest, removeFriend, fetchFriendsList, fetchFriendData,
   };
 }

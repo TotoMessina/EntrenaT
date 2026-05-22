@@ -16,11 +16,12 @@ import {
   Flame,
   MoreHorizontal,
   X,
-  Zap
+  Zap,
+  Users
 } from 'lucide-react';
 import { calculateAchievements, calculateActiveStreak } from '../utils/achievements';
 
-export default function Sidebar({ activeTab, setActiveTab, onAddWorkoutClick, theme, setTheme, isSupabaseConnected, user, onLogout, workouts = [], onOpenReport }) {
+export default function Sidebar({ activeTab, setActiveTab, onAddWorkoutClick, theme, setTheme, isSupabaseConnected, user, onLogout, workouts = [], onOpenReport, pendingRequestsCount = 0 }) {
   const [showMoreSheet, setShowMoreSheet] = useState(false);
 
   const achievements = calculateAchievements(workouts);
@@ -41,6 +42,7 @@ export default function Sidebar({ activeTab, setActiveTab, onAddWorkoutClick, th
     { id: 'nutrition', label: 'Nutrición', icon: Apple },
     { id: 'predictors', label: 'Calculadoras', icon: Sparkles },
     { id: 'achievements', label: 'Logros', icon: Award },
+    { id: 'social', label: 'Comunidad', icon: Users },
     { id: 'data', label: 'Respaldos', icon: Database },
   ];
 
@@ -57,6 +59,7 @@ export default function Sidebar({ activeTab, setActiveTab, onAddWorkoutClick, th
     { id: 'analytics', label: 'Estadísticas', icon: TrendingUp },
     { id: 'predictors', label: 'Calculadoras', icon: Sparkles },
     { id: 'achievements', label: 'Logros', icon: Award },
+    { id: 'social', label: 'Comunidad', icon: Users },
     { id: 'data', label: 'Respaldos', icon: Database },
   ];
 
@@ -104,6 +107,11 @@ export default function Sidebar({ activeTab, setActiveTab, onAddWorkoutClick, th
                 {item.id === 'achievements' && unlockedCount > 0 && (
                   <span className="sidebar-badge-count animate-pulse">
                     {unlockedCount}
+                  </span>
+                )}
+                {item.id === 'social' && pendingRequestsCount > 0 && (
+                  <span className="sidebar-badge-count animate-pulse" style={{ background: 'linear-gradient(135deg, var(--color-running) 0%, #10b981 100%)', boxShadow: '0 0 8px rgba(16, 185, 129, 0.5)' }}>
+                    {pendingRequestsCount}
                   </span>
                 )}
               </button>
@@ -155,6 +163,11 @@ export default function Sidebar({ activeTab, setActiveTab, onAddWorkoutClick, th
           >
             <MoreHorizontal className="nav-icon" size={22} />
             <span className="nav-label">Más</span>
+            {pendingRequestsCount > 0 && (
+              <span className="sidebar-badge-count animate-pulse" style={{ background: 'linear-gradient(135deg, var(--color-running) 0%, #10b981 100%)', boxShadow: '0 0 8px rgba(16, 185, 129, 0.5)' }}>
+                {pendingRequestsCount}
+              </span>
+            )}
           </button>
         </nav>
 
@@ -767,9 +780,15 @@ export default function Sidebar({ activeTab, setActiveTab, onAddWorkoutClick, th
                 key={item.id}
                 className={`mobile-more-item ${activeTab === item.id ? 'active' : ''}`}
                 onClick={() => handleMoreItemClick(item.id)}
+                style={{ position: 'relative' }}
               >
                 <Icon className="mobile-more-item-icon" size={20} />
                 <span className="mobile-more-item-label">{item.label}</span>
+                {item.id === 'social' && pendingRequestsCount > 0 && (
+                  <span className="sidebar-badge-count animate-pulse" style={{ position: 'absolute', top: '10px', right: '12px', background: 'linear-gradient(135deg, var(--color-running) 0%, #10b981 100%)', boxShadow: '0 0 8px rgba(16, 185, 129, 0.5)', margin: 0 }}>
+                    {pendingRequestsCount}
+                  </span>
+                )}
               </button>
             );
           })}

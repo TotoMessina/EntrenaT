@@ -1836,7 +1836,7 @@ export default function AddWorkoutForm({ onSaveWorkout, onUpdateWorkout, onClose
                     if (progressPct >= 85) {
                       return (
                         <div className="alert-wear mt-2" style={{ display: 'flex', gap: '0.5rem', padding: '0.65rem', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: '8px', fontSize: '0.75rem', color: '#f87171', lineHeight: '1.3' }}>
-                          <span>⚠️ <strong>Advertencia de Desgaste Crítico:</strong> Este calzado tiene {Math.round(totalKm * 10) / 10} km de uso ({Math.round(progressPct)}% de su límite). La suela ha perdido su capacidad óptima de amortiguación. Se sugiere reemplazarlo para prevenir lesiones.</span>
+                          <span>⚠️ <strong>Zapatilla con desgaste crítico</strong> ({Math.round(totalKm * 10) / 10} km de uso, {Math.round(progressPct)}% de su límite). Considera rotarla para evitar molestias articulares.</span>
                         </div>
                       );
                     } else if (progressPct >= 60) {

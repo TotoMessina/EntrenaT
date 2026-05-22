@@ -29,7 +29,37 @@ const getGymSessionSetsCount = (workout) => {
   }, 0) || 0;
 };
 
-export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout, onUpdateAllWorkouts, onEditWorkout, showAlert, showConfirm }) {
+export default function WorkoutsLog({ workouts, shoes = [], onDeleteWorkout, onUpdateWorkout, onUpdateAllWorkouts, onEditWorkout, showAlert, showConfirm }) {
+  // Obtener los detalles de zapatillas y su estado de desgaste
+  const getShoeDetails = (shoeId) => {
+    if (!shoeId || !shoes || shoes.length === 0) return null;
+    const shoe = shoes.find(s => s.id === shoeId);
+    if (!shoe) return null;
+
+    const runningWorkouts = workouts.filter(w => {
+      if (w.type !== 'running') return false;
+      return (w.advanced_metrics?.shoeId === shoe.id) || (w.shoeId === shoe.id);
+    });
+    
+    const accumulatedDistance = runningWorkouts.reduce((sum, w) => sum + (Number(w.distance) || 0), 0);
+    const totalKm = Number(shoe.initialKm || 0) + accumulatedDistance;
+    const progressPct = Math.min(100, (totalKm / Number(shoe.maxKm || 800)) * 100);
+
+    let statusColor = '#10b981'; // Green
+    if (progressPct >= 85) {
+      statusColor = '#ef4444'; // Red
+    } else if (progressPct >= 60) {
+      statusColor = '#f59e0b'; // Orange/Yellow
+    }
+
+    return {
+      name: `${shoe.brand} ${shoe.model}`,
+      color: statusColor,
+      progressPct,
+      totalKm: Math.round(totalKm * 10) / 10
+    };
+  };
+
   const [filterType, setFilterType] = useState('all'); // all, running, gym
   const [searchQuery, setSearchQuery] = useState('');
   const [filterMuscle, setFilterMuscle] = useState('all');
@@ -478,6 +508,31 @@ export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout
                         <span className={`badge ${isGym ? 'badge-gym' : 'badge-running'}`}>
                           {isGym ? 'Gym' : 'Running'}
                         </span>
+                        {!isGym && (() => {
+                          const shoeId = w.shoeId || w.advanced_metrics?.shoeId;
+                          const shoeDetails = getShoeDetails(shoeId);
+                          if (!shoeDetails) return null;
+                          return (
+                            <span 
+                              className="badge" 
+                              style={{ 
+                                background: `${shoeDetails.color}15`, 
+                                color: shoeDetails.color, 
+                                border: `1px solid ${shoeDetails.color}35`,
+                                marginLeft: '6px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                fontSize: '11px',
+                                textTransform: 'none',
+                                verticalAlign: 'middle'
+                              }}
+                              title={`Uso acumulado: ${shoeDetails.totalKm} km (${Math.round(shoeDetails.progressPct)}%)`}
+                            >
+                              👟 {shoeDetails.name}
+                            </span>
+                          );
+                        })()}
                         {isGym && (w.trainedMuscles && w.trainedMuscles.length > 0 ? (
                           <div className="trained-muscles-badges-row" style={{ display: 'inline-flex', flexWrap: 'wrap', gap: '4px', marginLeft: '4px', verticalAlign: 'middle' }}>
                             {w.trainedMuscles.map((m, idx) => (

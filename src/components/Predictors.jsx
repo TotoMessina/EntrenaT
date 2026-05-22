@@ -2762,7 +2762,7 @@ export default function Predictors({ workouts = [], profile = {} }) {
                         </div>
                       )}
                     </>
-                  )();
+                  );
                 })()}
               </div>
 

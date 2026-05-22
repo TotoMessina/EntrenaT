@@ -236,3 +236,89 @@ CREATE POLICY "Usuarios pueden gestionar sus propios planes" ON training_plans
 DROP POLICY IF EXISTS "Usuarios pueden gestionar su propio readiness" ON readiness_logs;
 CREATE POLICY "Usuarios pueden gestionar su propio readiness" ON readiness_logs
   FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+
+-- ==========================================
+-- 6. SISTEMA DE COMUNIDAD Y AMISTADES (BÚSQUEDA DE USUARIOS, WORKOUTS Y ESTADÍSTICAS)
+-- ==========================================
+
+-- Paso 1: Actualizar la tabla profiles con columnas de identificación para la búsqueda
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'profiles' AND column_name = 'display_name') THEN
+        ALTER TABLE profiles ADD COLUMN display_name TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'profiles' AND column_name = 'username') THEN
+        ALTER TABLE profiles ADD COLUMN username TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'profiles' AND column_name = 'email') THEN
+        ALTER TABLE profiles ADD COLUMN email TEXT;
+    END IF;
+END $$;
+
+-- Paso 2: Crear tabla de amistades (Friendships) para la relación bidireccional
+CREATE TABLE IF NOT EXISTS friendships (
+  user_id UUID REFERENCES profiles(user_id) ON DELETE CASCADE NOT NULL,
+  friend_id UUID REFERENCES profiles(user_id) ON DELETE CASCADE NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'accepted')),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  PRIMARY KEY (user_id, friend_id)
+);
+
+-- Paso 3: Habilitar RLS en friendships
+ALTER TABLE friendships ENABLE ROW LEVEL SECURITY;
+
+-- Paso 4: Políticas RLS para friendships
+DROP POLICY IF EXISTS "Usuarios pueden ver sus propias amistades" ON friendships;
+CREATE POLICY "Usuarios pueden ver sus propias amistades" ON friendships
+  FOR SELECT USING (auth.uid() = user_id OR auth.uid() = friend_id);
+
+DROP POLICY IF EXISTS "Usuarios pueden enviar solicitudes de amistad" ON friendships;
+CREATE POLICY "Usuarios pueden enviar solicitudes de amistad" ON friendships
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Usuarios pueden actualizar solicitudes de amistad recibidas" ON friendships;
+CREATE POLICY "Usuarios pueden actualizar solicitudes de amistad recibidas" ON friendships
+  FOR UPDATE USING (auth.uid() = friend_id) WITH CHECK (auth.uid() = friend_id);
+
+DROP POLICY IF EXISTS "Usuarios pueden borrar o cancelar amistades" ON friendships;
+CREATE POLICY "Usuarios pueden borrar o cancelar amistades" ON friendships
+  FOR DELETE USING (auth.uid() = user_id OR auth.uid() = friend_id);
+
+-- Paso 5: Actualizar políticas RLS de profiles para que usuarios puedan buscar a otros
+DROP POLICY IF EXISTS "Permitir lectura de perfiles a autenticados" ON profiles;
+DROP POLICY IF EXISTS "Usuarios pueden ver su propio perfil" ON profiles;
+
+CREATE POLICY "Usuarios pueden ver su propio perfil" 
+  ON profiles FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Permitir lectura de perfiles a autenticados" 
+  ON profiles FOR SELECT USING (auth.role() = 'authenticated');
+
+-- Paso 6: RLS para permitir que amigos aceptados vean los entrenamientos de su amigo
+DROP POLICY IF EXISTS "Amigos pueden ver entrenamientos de su amigo" ON workouts;
+CREATE POLICY "Amigos pueden ver entrenamientos de su amigo" ON workouts
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM friendships 
+      WHERE friendships.status = 'accepted' 
+        AND (
+          (friendships.user_id = workouts.user_id AND friendships.friend_id = auth.uid()) OR
+          (friendships.user_id = auth.uid() AND friendships.friend_id = workouts.user_id)
+        )
+    )
+  );
+
+-- Paso 7: RLS para permitir que amigos aceptados vean el estado de disposición (readiness)
+DROP POLICY IF EXISTS "Amigos pueden ver readiness de su amigo" ON readiness_logs;
+CREATE POLICY "Amigos pueden ver readiness de su amigo" ON readiness_logs
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM friendships 
+      WHERE friendships.status = 'accepted' 
+        AND (
+          (friendships.user_id = readiness_logs.user_id AND friendships.friend_id = auth.uid()) OR
+          (friendships.user_id = auth.uid() AND friendships.friend_id = readiness_logs.user_id)
+        )
+    )
+  );

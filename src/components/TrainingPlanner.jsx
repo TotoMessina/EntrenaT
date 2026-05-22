@@ -5,7 +5,50 @@ import {
 } from 'lucide-react';
 import { generateWeeklyMesocyclePlan, getBestWorkoutVdotAndPaces } from '../utils/calculators';
 
-export default function TrainingPlanner({ workouts = [], onUpdatePlans, plans = [], profile = {} }) {
+export default function TrainingPlanner({ workouts = [], onUpdatePlans, plans = [], profile = {}, readinessLogs = [] }) {
+  // Helper de disposición física (Readiness Score) por fecha
+  const getReadinessScoreForDate = (dateStr) => {
+    const log = readinessLogs.find(l => l.date === dateStr);
+    if (!log) return null;
+    
+    const s = Number(log.sleep) || 4;
+    const sore = Number(log.soreness) || 2;
+    const rHr = Number(log.restingHr) || (profile.restingHR || 60);
+    const baselineHR = profile.restingHR || 60;
+    
+    const sleepScore = (s / 5) * 35;
+    const sorenessScore = ((6 - sore) / 5) * 25;
+    const hrDiff = rHr - baselineHR;
+    let hrScore = 15;
+    if (hrDiff > 3) {
+      hrScore = Math.max(0, 15 - (hrDiff - 3) * 1.5);
+    }
+    
+    let hrvScore = 25;
+    let hasHrv = false;
+    if (log.hrv && Number(log.hrv) > 0) {
+      hasHrv = true;
+      const hVal = Number(log.hrv);
+      if (hVal >= 50 && hVal <= 75) {
+        hrvScore = 25;
+      } else if (hVal < 45) {
+        hrvScore = Math.max(5, 25 - (45 - hVal) * 1.2);
+      }
+    }
+    
+    if (!hasHrv) {
+      const adjSleep = (s / 5) * 45;
+      const adjSore = ((6 - sore) / 5) * 35;
+      let adjHr = 20;
+      if (hrDiff > 3) {
+        adjHr = Math.max(0, 20 - (hrDiff - 3) * 2.0);
+      }
+      return Math.round(adjSleep + adjSore + adjHr);
+    }
+    
+    return Math.round(sleepScore + sorenessScore + hrScore + hrvScore);
+  };
+
   const [currentWeekStart, setCurrentWeekStart] = useState(() => {
     const today = new Date();
     const day = today.getDay();
@@ -184,6 +227,7 @@ export default function TrainingPlanner({ workouts = [], onUpdatePlans, plans = 
         .reduce((sum, w) => sum + (Number(w.distance) || 0), 0);
       
       const hasActualGym = dayWorkouts.some(w => w.type === 'gym');
+      const readinessScore = getReadinessScoreForDate(dStr);
 
       days.push({
         dateStr: dStr,
@@ -192,11 +236,12 @@ export default function TrainingPlanner({ workouts = [], onUpdatePlans, plans = 
         plan: dayPlan || null,
         actualDistance: Math.round(actualDistance * 10) / 10,
         hasActualGym,
+        readinessScore,
         isToday: d.toDateString() === new Date().toDateString()
       });
     }
     return days;
-  }, [currentWeekStart, plans, workouts]);
+  }, [currentWeekStart, plans, workouts, readinessLogs]);
 
   // Estadísticas semanales
   const weekStats = useMemo(() => {
@@ -244,6 +289,33 @@ export default function TrainingPlanner({ workouts = [], onUpdatePlans, plans = 
     const updated = plans.filter(p => p.date !== dateStr);
     onUpdatePlans(updated);
     setEditingDay(null);
+  };
+
+  const handleAdaptPlan = (dateStr, adaptationType) => {
+    const originalPlan = plans.find(p => p.date === dateStr);
+    if (!originalPlan) return;
+    let updatedPlan;
+    const score = getReadinessScoreForDate(dateStr);
+    const scoreStr = score !== null ? (score / 10).toFixed(1) : '0.0';
+    if (adaptationType === 'regenerativo') {
+      const origDist = Number(originalPlan.distance) || 0;
+      const newDist = Math.max(5, Math.round(origDist * 0.5));
+      updatedPlan = {
+        ...originalPlan,
+        sessionType: 'Regenerativo',
+        distance: newDist,
+        note: `Sesión adaptada por baja disposición (Readiness: ${scoreStr}/10).`
+      };
+    } else if (adaptationType === 'descanso') {
+      updatedPlan = {
+        ...originalPlan,
+        sessionType: 'Descanso',
+        distance: 0,
+        note: `Descanso priorizado por baja disposición (Readiness: ${scoreStr}/10).`
+      };
+    }
+    const updated = plans.map(p => p.date === dateStr ? updatedPlan : p);
+    onUpdatePlans(updated);
   };
 
   // Moverse entre semanas
@@ -339,6 +411,22 @@ export default function TrainingPlanner({ workouts = [], onUpdatePlans, plans = 
       if (sType === 'Fondo' && Number(dayPlan.distance) > (weeklyGoal * 0.25)) {
         return "Cuidado: Fondos prolongados en descarga retrasan la disipación de fatiga. Limítalos a distancias de activación muy breves.";
       }
+    }
+    return null;
+  };
+
+  // Evaluar conflictos de disposición física (Readiness Score < 45) en días exigentes
+  const checkReadinessConflict = (day) => {
+    if (!day || !day.plan) return null;
+    const demandingTypes = ['Fondo', 'Tempo', 'Intervalos'];
+    if (!demandingTypes.includes(day.plan.sessionType)) return null;
+
+    const score = day.readinessScore;
+    if (score !== null && score < 45) {
+      return {
+        score,
+        planType: day.plan.sessionType
+      };
     }
     return null;
   };
@@ -768,6 +856,72 @@ export default function TrainingPlanner({ workouts = [], onUpdatePlans, plans = 
                   <span>{warning}</span>
                 </div>
               )}
+
+              {/* Aviso de Autorregulación por Disposición Crítica */}
+              {(() => {
+                const conflict = checkReadinessConflict(day);
+                if (!conflict) return null;
+                return (
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.5rem',
+                    background: 'rgba(239, 68, 68, 0.08)',
+                    backdropFilter: 'blur(8px)',
+                    border: '1px dashed rgba(239, 68, 68, 0.3)',
+                    padding: '0.65rem 0.85rem',
+                    borderRadius: '8px',
+                    fontSize: '0.75rem',
+                    marginTop: '0.35rem',
+                    boxShadow: '0 4px 12px rgba(239, 68, 68, 0.1)'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#f87171', fontWeight: '600' }}>
+                      <AlertTriangle size={14} style={{ flexShrink: 0 }} />
+                      <span>Aviso de Disposición Crítica ({(conflict.score / 10).toFixed(1)}/10)</span>
+                    </div>
+                    <p style={{ margin: 0, color: 'rgba(255, 255, 255, 0.7)', lineHeight: '1.4' }}>
+                      Hoy tienes planificado un <strong>{conflict.planType}</strong>. Tu recuperación neuromuscular actual es muy baja. ¿Deseas adaptar la sesión por un Trote Regenerativo o Descanso para mitigar riesgos de sobreentrenamiento?
+                    </p>
+                    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.2rem' }}>
+                      <button
+                        onClick={() => handleAdaptPlan(day.dateStr, 'regenerativo')}
+                        className="action-btn-primary"
+                        style={{
+                          padding: '0.25rem 0.5rem',
+                          fontSize: '0.65rem',
+                          borderRadius: '6px',
+                          background: 'rgba(139, 92, 246, 0.2)',
+                          border: '1px solid rgba(139, 92, 246, 0.4)',
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.25rem',
+                          color: '#fff'
+                        }}
+                      >
+                        <Sparkles size={11} />
+                        Adaptar a Regenerativo
+                      </button>
+                      <button
+                        onClick={() => handleAdaptPlan(day.dateStr, 'descanso')}
+                        className="action-btn-secondary"
+                        style={{
+                          padding: '0.25rem 0.5rem',
+                          fontSize: '0.65rem',
+                          borderRadius: '6px',
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.25rem'
+                        }}
+                      >
+                        <Feather size={11} />
+                        Priorizar Descanso
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Editor Inline */}
               {isEditing && (
