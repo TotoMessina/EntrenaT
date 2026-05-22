@@ -47,7 +47,9 @@ const getRpeDescription = (rpe) => {
   return '';
 };
 
-export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workouts, shoes = [], showAlert, showConfirm }) {
+export default function AddWorkoutForm({ onSaveWorkout, onUpdateWorkout, onClose, preset, workouts, shoes = [], showAlert, showConfirm }) {
+  const isEditMode = !!(preset && preset.id);
+
   const triggerAlert = async (title, message) => {
     if (showAlert) {
       await showAlert(title, message);
@@ -112,6 +114,10 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
 
   // Auto-initialize shoeId using the active shoe
   useEffect(() => {
+    if (preset && preset.id && preset.shoeId) {
+      setShoeId(preset.shoeId);
+      return;
+    }
     if (shoes && shoes.length > 0) {
       const activeShoe = shoes.find(s => s.isActive);
       if (activeShoe) {
@@ -120,7 +126,7 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
         setShoeId(shoes[0].id);
       }
     }
-  }, [shoes]);
+  }, [shoes, preset]);
 
   // Auto-calculated pace/speed for UI
   const [calculatedPace, setCalculatedPace] = useState('--:--');
@@ -150,13 +156,50 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
   }, [distance, durationHH, durationMM, durationSS]);
 
   const handleAddSplit = () => {
-    setSplits([...splits, { splitNumber: splits.length + 1, distance: 1000, time: '00:05:00' }]);
+    const newSplit = { splitNumber: splits.length + 1, distance: 1000, time: '00:05:00' };
+    const nextSplits = [...splits, newSplit];
+    setSplits(nextSplits);
+
+    // Update total distance
+    const totalDistM = nextSplits.reduce((sum, s) => sum + s.distance, 0);
+    setDistance((Math.round((totalDistM / 1000) * 100) / 100).toString());
+
+    // Update total duration
+    let totalSeconds = 0;
+    nextSplits.forEach((s) => {
+      const secs = timeStringToSeconds(s.time);
+      totalSeconds += secs;
+    });
+    const hh = Math.floor(totalSeconds / 3600);
+    const mm = Math.floor((totalSeconds % 3600) / 60);
+    const ss = totalSeconds % 60;
+    setDurationHH(String(hh).padStart(2, '0'));
+    setDurationMM(String(mm).padStart(2, '0'));
+    setDurationSS(String(ss).padStart(2, '0'));
   };
   
   const handleRemoveSplit = (index) => {
     const newSplits = [...splits];
     newSplits.splice(index, 1);
-    setSplits(newSplits.map((s, i) => ({ ...s, splitNumber: i + 1 })));
+    const mappedSplits = newSplits.map((s, i) => ({ ...s, splitNumber: i + 1 }));
+    setSplits(mappedSplits);
+
+    // Update total distance
+    const totalDistM = mappedSplits.reduce((sum, s) => sum + s.distance, 0);
+    setDistance((Math.round((totalDistM / 1000) * 100) / 100).toString());
+
+    // Update total duration
+    let totalSeconds = 0;
+    mappedSplits.forEach((s) => {
+      const secs = timeStringToSeconds(s.time);
+      totalSeconds += secs;
+    });
+    const hh = Math.floor(totalSeconds / 3600);
+    const mm = Math.floor((totalSeconds % 3600) / 60);
+    const ss = totalSeconds % 60;
+    setDurationHH(String(hh).padStart(2, '0'));
+    setDurationMM(String(mm).padStart(2, '0'));
+    setDurationSS(String(ss).padStart(2, '0'));
   };
 
   const getDisplayTime = (timeStr) => {
@@ -179,20 +222,67 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
     newSplits[index].time = formatted;
     setSplits(newSplits);
 
-    // Auto-update total duration if not auto-km splits
-    if (splitsType !== 'auto') {
-      let totalSeconds = 0;
-      newSplits.forEach((s, idx) => {
-        const secs = timeStringToSeconds(s.time);
-        totalSeconds += secs;
-      });
-      const hh = Math.floor(totalSeconds / 3600);
-      const mm = Math.floor((totalSeconds % 3600) / 60);
-      const ss = totalSeconds % 60;
-      setDurationHH(String(hh).padStart(2, '0'));
-      setDurationMM(String(mm).padStart(2, '0'));
-      setDurationSS(String(ss).padStart(2, '0'));
+    // Auto-update total duration for all split types to allow full customisation
+    let totalSeconds = 0;
+    newSplits.forEach((s) => {
+      const secs = timeStringToSeconds(s.time);
+      totalSeconds += secs;
+    });
+    const hh = Math.floor(totalSeconds / 3600);
+    const mm = Math.floor((totalSeconds % 3600) / 60);
+    const ss = totalSeconds % 60;
+    setDurationHH(String(hh).padStart(2, '0'));
+    setDurationMM(String(mm).padStart(2, '0'));
+    setDurationSS(String(ss).padStart(2, '0'));
+  };
+
+  const getSplitPaceValue = (split) => {
+    const secs = timeStringToSeconds(split.time);
+    const distKm = split.distance / 1000;
+    if (secs > 0 && distKm > 0) {
+      const paceSecs = Math.round(secs / distKm);
+      const mins = Math.floor(paceSecs / 60);
+      const remainSecs = paceSecs % 60;
+      return `${String(mins).padStart(2, '0')}:${String(remainSecs).padStart(2, '0')}`;
     }
+    return '';
+  };
+
+  const handleSplitPaceChange = (index, paceStr) => {
+    const newSplits = [...splits];
+    const parts = paceStr.split(':');
+    let paceSeconds = 0;
+    if (parts.length === 2) {
+      paceSeconds = (parseInt(parts[0]) || 0) * 60 + (parseInt(parts[1]) || 0);
+    } else {
+      paceSeconds = parseInt(paceStr) || 0;
+    }
+
+    if (paceSeconds > 0) {
+      const distKm = newSplits[index].distance / 1000;
+      const totalSecs = Math.round(paceSeconds * distKm);
+      const hh = Math.floor(totalSecs / 3600);
+      const mm = Math.floor((totalSecs % 3600) / 60);
+      const ss = totalSecs % 60;
+      newSplits[index].time = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+    } else {
+      newSplits[index].time = '00:00:00';
+    }
+
+    setSplits(newSplits);
+
+    // Auto-update total duration for all split types
+    let totalSeconds = 0;
+    newSplits.forEach((s) => {
+      const secs = timeStringToSeconds(s.time);
+      totalSeconds += secs;
+    });
+    const hh = Math.floor(totalSeconds / 3600);
+    const mm = Math.floor((totalSeconds % 3600) / 60);
+    const ss = totalSeconds % 60;
+    setDurationHH(String(hh).padStart(2, '0'));
+    setDurationMM(String(mm).padStart(2, '0'));
+    setDurationSS(String(ss).padStart(2, '0'));
   };
 
   const generateAutoSplits = async () => {
@@ -1031,33 +1121,86 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
   // Load preset fields automatically if they are passed
   useEffect(() => {
     if (preset) {
-      if (preset.type) setWorkoutType(preset.type);
-      if (preset.terrain) setTerrain(preset.terrain);
-      if (preset.muscleGroup) {
-        setMuscleGroup(preset.muscleGroup);
-        setTrainedMuscles([preset.muscleGroup]);
-      }
-      if (preset.sessionName) setSessionName(preset.sessionName);
-      
-      if (preset.type === 'gym' && preset.muscleGroup) {
-        const exercisesByMuscle = {
-          'Pectoral': 'Press de Banca',
-          'Espalda': 'Dominadas',
-          'Pierna': 'Sentadilla Trasera con Barra',
-          'Hombros': 'Press Militar con Barra',
-          'Brazos': 'Curl de Bíceps con Barra',
-          'Core': 'Plancha Abdominal (Plank)'
-        };
-        const defaultExName = exercisesByMuscle[preset.muscleGroup] || '';
-        setExercises([{
-          name: defaultExName,
-          sets: [
-            { type: 'working', weight: '50', reps: '10', rpe: '8', rest: '90', done: true },
-            { type: 'working', weight: '50', reps: '10', rpe: '8', rest: '90', done: true },
-            { type: 'working', weight: '50', reps: '10', rpe: '8', rest: '90', done: true },
-            { type: 'working', weight: '50', reps: '10', rpe: '8', rest: '90', done: true }
-          ]
-        }]);
+      const isWorkoutEdit = !!preset.id;
+
+      if (isWorkoutEdit) {
+        if (preset.type) setWorkoutType(preset.type);
+        if (preset.date) setDate(preset.date);
+        if (preset.notes) setNotes(preset.notes);
+
+        if (preset.type === 'gym') {
+          if (preset.sessionName) setSessionName(preset.sessionName);
+          if (preset.muscleGroup) setMuscleGroup(preset.muscleGroup);
+          if (preset.trainedMuscles) setTrainedMuscles(preset.trainedMuscles);
+          if (preset.exercises) setExercises(preset.exercises);
+        } else {
+          if (preset.distance) setDistance(String(preset.distance));
+          if (preset.duration && preset.duration.includes(':')) {
+            const parts = preset.duration.split(':');
+            if (parts.length === 3) {
+              setDurationHH(parts[0]);
+              setDurationMM(parts[1]);
+              setDurationSS(parts[2]);
+            }
+          }
+          if (preset.heartRate) setHeartRate(String(preset.heartRate));
+          if (preset.rpe) setRpeRunning(String(preset.rpe));
+          if (preset.terrain) setTerrain(preset.terrain);
+          if (preset.gpxData) setGpxData(preset.gpxData);
+          if (preset.maxSpeed) setMaxSpeed(String(preset.maxSpeed));
+          if (preset.avgCadence) setAvgCadence(String(preset.avgCadence));
+          if (preset.maxCadence) setMaxCadence(String(preset.maxCadence));
+          if (preset.strideLength) setStrideLength(String(preset.strideLength));
+          if (preset.elevationGain) setElevationGain(String(preset.elevationGain));
+          if (preset.elevationLoss) setElevationLoss(String(preset.elevationLoss));
+          if (preset.shoeId) setShoeId(preset.shoeId);
+          
+          if (preset.splits && preset.splits.length > 0) {
+            setSplits(preset.splits);
+            const hasStructured = preset.splits.some(s => s.type === 'warmup' || s.type === 'interval' || s.type === 'rest' || s.type === 'cooldown');
+            if (hasStructured) {
+              setSplitsType('structured');
+            } else {
+              const hasInterval = preset.splits.some(s => s.distance !== 1000);
+              if (hasInterval) {
+                setSplitsType('manual');
+              } else {
+                setSplitsType('auto');
+              }
+            }
+          } else {
+            setSplits([]);
+          }
+        }
+      } else {
+        if (preset.type) setWorkoutType(preset.type);
+        if (preset.terrain) setTerrain(preset.terrain);
+        if (preset.muscleGroup) {
+          setMuscleGroup(preset.muscleGroup);
+          setTrainedMuscles([preset.muscleGroup]);
+        }
+        if (preset.sessionName) setSessionName(preset.sessionName);
+        
+        if (preset.type === 'gym' && preset.muscleGroup) {
+          const exercisesByMuscle = {
+            'Pectoral': 'Press de Banca',
+            'Espalda': 'Dominadas',
+            'Pierna': 'Sentadilla Trasera con Barra',
+            'Hombros': 'Press Militar con Barra',
+            'Brazos': 'Curl de Bíceps con Barra',
+            'Core': 'Plancha Abdominal (Plank)'
+          };
+          const defaultExName = exercisesByMuscle[preset.muscleGroup] || '';
+          setExercises([{
+            name: defaultExName,
+            sets: [
+              { type: 'working', weight: '50', reps: '10', rpe: '8', rest: '90', done: true },
+              { type: 'working', weight: '50', reps: '10', rpe: '8', rest: '90', done: true },
+              { type: 'working', weight: '50', reps: '10', rpe: '8', rest: '90', done: true },
+              { type: 'working', weight: '50', reps: '10', rpe: '8', rest: '90', done: true }
+            ]
+          }]);
+        }
       }
     }
   }, [preset]);
@@ -1222,7 +1365,7 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
       const ss = String(durationSS).padStart(2, '0');
       
       const newWorkout = {
-        id: `run-${Date.now()}`,
+        id: isEditMode ? preset.id : `run-${Date.now()}`,
         type: 'running',
         date,
         distance: parseFloat(distance),
@@ -1242,7 +1385,12 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
         shoeId: shoeId || null
       };
       
-      onSaveWorkout(newWorkout);
+      if (isEditMode) {
+        if (onUpdateWorkout) onUpdateWorkout(newWorkout);
+      } else {
+        onSaveWorkout(newWorkout);
+      }
+      if (onClose) onClose();
     } else {
       // Gym validations
       if (!sessionName.trim()) {
@@ -1281,7 +1429,7 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
       });
 
       const newWorkout = {
-        id: `gym-${Date.now()}`,
+        id: isEditMode ? preset.id : `gym-${Date.now()}`,
         type: 'gym',
         date,
         sessionName: sessionName.trim(),
@@ -1291,7 +1439,12 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
         notes
       };
 
-      onSaveWorkout(newWorkout);
+      if (isEditMode) {
+        if (onUpdateWorkout) onUpdateWorkout(newWorkout);
+      } else {
+        onSaveWorkout(newWorkout);
+      }
+      if (onClose) onClose();
     }
   };
 
@@ -1551,7 +1704,7 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
         <div className="modal-header">
           <h2 className="gradient-text font-extrabold text-2xl flex-center">
             {workoutType === 'running' ? <TrendingUp size={22} className="running-text" /> : <Dumbbell size={22} className="gym-text" />}
-            Registrar Nuevo Entrenamiento
+            {isEditMode ? 'Editar Entrenamiento' : 'Registrar Nuevo Entrenamiento'}
           </h2>
           <button className="btn-close-modal" onClick={onClose}>
             <X size={20} />
@@ -1559,22 +1712,24 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
         </div>
 
         {/* Tab Switcher */}
-        <div className="tab-switcher mb-5">
-          <button
-            type="button"
-            onClick={() => setWorkoutType('running')}
-            className={`tab-btn ${workoutType === 'running' ? 'active-run' : ''}`}
-          >
-            🏃 Running / Cardio
-          </button>
-          <button
-            type="button"
-            onClick={() => setWorkoutType('gym')}
-            className={`tab-btn ${workoutType === 'gym' ? 'active-gym' : ''}`}
-          >
-            🏋️ Gimnasio / Fuerza
-          </button>
-        </div>
+        {!isEditMode && (
+          <div className="tab-switcher mb-5">
+            <button
+              type="button"
+              onClick={() => setWorkoutType('running')}
+              className={`tab-btn ${workoutType === 'running' ? 'active-run' : ''}`}
+            >
+              🏃 Running / Cardio
+            </button>
+            <button
+              type="button"
+              onClick={() => setWorkoutType('gym')}
+              className={`tab-btn ${workoutType === 'gym' ? 'active-gym' : ''}`}
+            >
+              🏋️ Gimnasio / Fuerza
+            </button>
+          </div>
+        )}
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="modal-form-content">
@@ -2060,8 +2215,8 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
 
                       {/* RENDERING DYNAMIC INPUT SPLITS LIST */}
                       {splits.length > 0 && (
-                        <div className="splits-fields-list mt-3" style={{ maxHeight: '250px', overflowY: 'auto', paddingRight: '4px' }}>
-                          <label className="form-label-custom text-xs mb-2 block" style={{ color: 'var(--color-running)', fontWeight: 'bold' }}>Tiempos de cada Split / Repetición (MM:SS)</label>
+                        <div className="splits-fields-list mt-3" style={{ maxHeight: '280px', overflowY: 'auto', paddingRight: '4px' }}>
+                          <label className="form-label-custom text-xs mb-2 block" style={{ color: 'var(--color-running)', fontWeight: 'bold' }}>Splits / Tramos (Tiempo y Ritmo manual)</label>
                           {splits.map((split, index) => {
                             let label = `#${split.splitNumber}`;
                             let borderStyle = 'rgba(255,255,255,0.05)';
@@ -2080,26 +2235,56 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
                             }
 
                             return (
-                              <div key={index} className="flex-between-row mb-2 animate-fade-in" style={{ 
+                              <div key={index} className="flex-between-row mb-2 animate-fade-in split-row-card" style={{ 
                                 gap: '0.5rem', 
                                 alignItems: 'center',
                                 borderLeft: `3px solid ${borderStyle}`,
-                                background: 'rgba(255, 255, 255, 0.01)',
-                                padding: '4px 8px',
-                                borderRadius: '4px'
+                                background: 'rgba(255, 255, 255, 0.02)',
+                                padding: '6px 10px',
+                                borderRadius: '6px',
+                                borderTop: '1px solid rgba(255,255,255,0.03)',
+                                borderBottom: '1px solid rgba(255,255,255,0.03)',
+                                boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
                               }}>
-                                <span className="text-secondary font-bold text-xs" style={{ width: '130px', flexShrink: 0 }}>
-                                  {label} ({split.distance >= 1000 ? `${(split.distance / 1000).toFixed(2)}k` : `${split.distance}m`})
+                                <span className="text-secondary font-bold text-xs" style={{ width: '120px', flexShrink: 0, color: 'var(--color-text-primary)' }}>
+                                  {label} <span style={{ opacity: 0.6, fontSize: '10px', display: 'block', fontWeight: 'normal' }}>({split.distance >= 1000 ? `${(split.distance / 1000).toFixed(2)}k` : `${split.distance}m`})</span>
                                 </span>
-                                <input 
-                                  type="text" 
-                                  placeholder="MM:SS" 
-                                  value={getDisplayTime(split.time)}
-                                  onChange={(e) => handleSplitTimeChange(index, e.target.value)}
-                                  className="form-input text-xs"
-                                  style={{ padding: '0.35rem', flex: 1 }}
-                                />
-                                <button type="button" onClick={() => handleRemoveSplit(index)} className="btn" style={{ padding: '0.4rem', color: '#ef4444', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '6px' }}>
+                                
+                                <div style={{ display: 'flex', gap: '0.5rem', flex: 1 }}>
+                                  {/* Time Input */}
+                                  <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+                                    <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)', marginBottom: '2px' }}>Tiempo</span>
+                                    <input 
+                                      type="text" 
+                                      placeholder="MM:SS" 
+                                      value={getDisplayTime(split.time)}
+                                      onChange={(e) => handleSplitTimeChange(index, e.target.value)}
+                                      className="form-input text-xs text-center"
+                                      style={{ padding: '0.35rem', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px', color: '#fff' }}
+                                    />
+                                  </div>
+                                  
+                                  {/* Pace Input */}
+                                  <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+                                    <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)', marginBottom: '2px' }}>Ritmo (/km)</span>
+                                    <input 
+                                      type="text" 
+                                      placeholder="MM:SS" 
+                                      value={getSplitPaceValue(split)}
+                                      onChange={(e) => handleSplitPaceChange(index, e.target.value)}
+                                      className="form-input text-xs text-center"
+                                      style={{ padding: '0.35rem', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px', color: 'var(--color-running)' }}
+                                    />
+                                  </div>
+                                </div>
+
+                                <button 
+                                  type="button" 
+                                  onClick={() => handleRemoveSplit(index)} 
+                                  className="btn" 
+                                  style={{ padding: '0.4rem', color: '#ef4444', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '6px', alignSelf: 'flex-end', height: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                  title="Eliminar Split"
+                                >
                                   <Trash2 size={12} />
                                 </button>
                               </div>
@@ -2897,7 +3082,7 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
             </button>
             <button type="submit" className="btn btn-primary flex-center">
               <Save size={18} />
-              <span>Guardar Sesión</span>
+              <span>{isEditMode ? 'Guardar Cambios' : 'Guardar Sesión'}</span>
             </button>
           </div>
 

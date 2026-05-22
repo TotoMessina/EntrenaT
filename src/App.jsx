@@ -81,6 +81,7 @@ export default function App() {
             onDeleteWorkout={handleDeleteWorkout}
             onUpdateWorkout={handleUpdateWorkout}
             onUpdateAllWorkouts={handleUpdateAllWorkouts}
+            onEditWorkout={handleOpenAddWorkout}
             showAlert={showAlert}
             showConfirm={showConfirm}
           />
@@ -251,6 +252,7 @@ export default function App() {
         {isAddWorkoutOpen && (
           <AddWorkoutForm
             onSaveWorkout={handleSaveWorkout}
+            onUpdateWorkout={handleUpdateWorkout}
             onClose={() => {
               setIsAddWorkoutOpen(false);
               setAddWorkoutPreset(null);

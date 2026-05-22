@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { 
   Trash2, 
+  Pencil,
   Search, 
   Filter, 
   ChevronDown, 
@@ -11,31 +12,13 @@ import {
   Flame, 
   Dumbbell, 
   Award,
-  Clock
+  Clock,
+  TrendingUp
 } from 'lucide-react';
-import { formatPace, calculate1RM, timeStringToSeconds, getHRZonePlacement } from '../utils/calculators';
+import { formatPace, calculate1RM, timeStringToSeconds, getHRZonePlacement, getGymSessionVolume, getGymSessionMaxWeight, getGlobalTop3Records } from '../utils/calculators';
 import GpxVisualizer from './GpxVisualizer';
 import { compressGpxData, decompressGpxData } from '../utils/gpxCompressor';
 
-const getGymSessionVolume = (workout) => {
-  return workout.exercises?.reduce((sum, ex) => {
-    if (Array.isArray(ex.sets)) {
-      return sum + ex.sets.reduce((exSum, s) => {
-        if (s.done !== false) {
-          const w = parseFloat(s.weight) || 0;
-          const r = parseFloat(s.reps) || 0;
-          return exSum + (w * r);
-        }
-        return exSum;
-      }, 0);
-    } else {
-      const sets = Number(ex.sets) || 0;
-      const reps = Number(ex.reps) || 0;
-      const weight = Number(ex.weight) || 0;
-      return sum + (sets * reps * weight);
-    }
-  }, 0) || 0;
-};
 
 const getGymSessionSetsCount = (workout) => {
   return workout.exercises?.reduce((sum, ex) => {
@@ -46,7 +29,7 @@ const getGymSessionSetsCount = (workout) => {
   }, 0) || 0;
 };
 
-export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout, onUpdateAllWorkouts, showAlert, showConfirm }) {
+export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout, onUpdateAllWorkouts, onEditWorkout, showAlert, showConfirm }) {
   const [filterType, setFilterType] = useState('all'); // all, running, gym
   const [searchQuery, setSearchQuery] = useState('');
   const [filterMuscle, setFilterMuscle] = useState('all');
@@ -57,6 +40,12 @@ export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout
   });
   const [activeChip, setActiveChip] = useState('all'); // 'all', 'running', 'gym', 'week', 'records'
   const [selectedWorkouts, setSelectedWorkouts] = useState(new Set());
+
+  // Precomputar los rankings globales (top-3) para cada una de las 4 categorías
+  const globalRecords = React.useMemo(() => {
+    return getGlobalTop3Records(workouts);
+  }, [workouts]);
+
 
   const toggleSelectWorkout = (id) => {
     setSelectedWorkouts(prev => {
@@ -128,23 +117,84 @@ export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout
 
   const hasBulkUpdate = typeof onUpdateAllWorkouts === 'function';
 
-  const isRecord = (w) => {
+  // Determinar si una sesión tiene medallas en el podio histórico de todos los tiempos.
+  // Solo los 3 mejores de todos los tiempos en cada una de las 4 categorías principales.
+  const getWorkoutMedals = (w) => {
+    const medals = [];
+    const getMedalStyles = (rank) => {
+      if (rank === 1) return { label: 'Oro', class: 'medal-gold', icon: '🥇' };
+      if (rank === 2) return { label: 'Plata', class: 'medal-silver', icon: '🥈' };
+      if (rank === 3) return { label: 'Bronce', class: 'medal-bronze', icon: '🥉' };
+      return null;
+    };
+
     if (w.type === 'running') {
       const dist = Number(w.distance) || 0;
-      const pace = dist > 0 ? timeStringToSeconds(w.duration) / dist : 0;
-      return dist >= 10 || (pace > 0 && pace < 300); // 10km+ or under 5:00/km
+      // 1. Distancia Máxima Running
+      const distIndex = globalRecords.distance.findIndex(r => r.id === w.id);
+      if (distIndex !== -1) {
+        const style = getMedalStyles(distIndex + 1);
+        medals.push({
+          type: 'distance',
+          text: `${style.icon} Distancia máx (${distIndex + 1}º): ${dist.toFixed(2)} km`,
+          class: style.class,
+          icon: style.icon,
+          rank: distIndex + 1
+        });
+      }
+
+      // 2. Mejor Ritmo Running
+      const paceIndex = globalRecords.pace.findIndex(r => r.id === w.id);
+      if (paceIndex !== -1) {
+        const style = getMedalStyles(paceIndex + 1);
+        const secs = timeStringToSeconds(w.duration);
+        const pace = secs / dist;
+        const paceMin = Math.floor(pace / 60);
+        const paceSec = Math.round(pace % 60);
+        medals.push({
+          type: 'pace',
+          text: `${style.icon} Mejor ritmo (${paceIndex + 1}º): ${paceMin}:${String(paceSec).padStart(2,'0')} min/km`,
+          class: style.class,
+          icon: style.icon,
+          rank: paceIndex + 1
+        });
+      }
     } else if (w.type === 'gym') {
-      const volume = getGymSessionVolume(w);
-      const hasHeavyWeight = w.exercises?.some(ex => {
-        if (Array.isArray(ex.sets)) {
-          return ex.sets.some(s => Number(s.weight) >= 80);
-        }
-        return Number(ex.weight) >= 80;
-      });
-      return volume >= 4000 || hasHeavyWeight; // 4000kg+ volume or 80kg+ lift
+      // 3. Volumen Máximo Gym
+      const volIndex = globalRecords.volume.findIndex(r => r.id === w.id);
+      if (volIndex !== -1) {
+        const style = getMedalStyles(volIndex + 1);
+        const vol = getGymSessionVolume(w);
+        medals.push({
+          type: 'volume',
+          text: `${style.icon} Volumen máx (${volIndex + 1}º): ${vol.toLocaleString('es-ES')} kg`,
+          class: style.class,
+          icon: style.icon,
+          rank: volIndex + 1
+        });
+      }
+
+      // 4. Levantamiento Máximo Gym
+      const wtIndex = globalRecords.weight.findIndex(r => r.id === w.id);
+      if (wtIndex !== -1) {
+        const style = getMedalStyles(wtIndex + 1);
+        const maxWt = getGymSessionMaxWeight(w);
+        medals.push({
+          type: 'weight',
+          text: `${style.icon} Levantamiento máx (${wtIndex + 1}º): ${maxWt} kg`,
+          class: style.class,
+          icon: style.icon,
+          rank: wtIndex + 1
+        });
+      }
     }
-    return false;
+
+    return medals;
   };
+
+  const isRecord = (w) => getWorkoutMedals(w).length > 0;
+
+
 
   const getRelativeDateLabel = (dateStr) => {
     const today = new Date();
@@ -455,11 +505,19 @@ export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout
                             {w.terrain}
                           </span>
                         )}
-                        {isRecord(w) && (
-                          <span className="meta-item record-badge" title="¡Esta sesión supera tus umbrales de rendimiento habituales!">
-                            🏆 Récord
-                          </span>
-                        )}
+                        {(() => {
+                          const medals = getWorkoutMedals(w);
+                          return medals.length > 0 ? medals.map((medal, mi) => (
+                            <span
+                              key={mi}
+                              className={`meta-item record-badge ${medal.class}`}
+                              title={medal.text}
+                            >
+                              {medal.text}
+                            </span>
+                          )) : null;
+                        })()}
+
                       </div>
                     </div>
                   </div>
@@ -505,8 +563,17 @@ export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout
                     )}
                   </div>
 
-                  {/* Right Column: Actions (Delete & Expand for gym) */}
+                  {/* Right Column: Actions (Delete, Edit & Expand for gym) */}
                   <div className="card-actions">
+                    {onEditWorkout && (
+                      <button 
+                        onClick={() => onEditWorkout(w)} 
+                        className="btn-action-edit"
+                        title="Editar sesión"
+                      >
+                        <Pencil size={18} />
+                      </button>
+                    )}
                     {canExpand && (
                       <button 
                         onClick={() => toggleExpand(w.id)} 
@@ -1290,7 +1357,7 @@ export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout
           align-items: center;
         }
 
-        .btn-action-expand, .btn-action-delete {
+        .btn-action-expand, .btn-action-delete, .btn-action-edit {
           background: rgba(255, 255, 255, 0.03);
           border: 1px solid var(--border-light);
           color: var(--text-secondary);
@@ -1314,6 +1381,12 @@ export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout
           background: rgba(239, 68, 68, 0.15);
           color: #ef4444;
           border-color: rgba(239, 68, 68, 0.3);
+        }
+
+        .btn-action-edit:hover {
+          background: rgba(16, 185, 129, 0.15);
+          color: var(--color-running);
+          border-color: rgba(16, 185, 129, 0.3);
         }
 
         /* Notes rows */
@@ -1583,14 +1656,44 @@ export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout
         }
 
         .record-badge {
-          background: rgba(245, 158, 11, 0.12);
-          border: 1px solid rgba(245, 158, 11, 0.3);
-          color: #f59e0b;
-          padding: 0.15rem 0.45rem;
-          border-radius: 6px;
+          padding: 0.2rem 0.55rem;
+          border-radius: 8px;
           font-weight: 800;
-          font-size: 0.7rem;
+          font-size: 0.72rem;
           letter-spacing: 0.03em;
+          display: inline-flex;
+          align-items: center;
+          gap: 0.3rem;
+          transition: all 0.2s ease;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+        }
+
+        .record-badge:hover {
+          transform: translateY(-1px);
+        }
+
+        .medal-gold {
+          background: rgba(245, 158, 11, 0.15) !important;
+          border: 1px solid rgba(245, 158, 11, 0.65) !important;
+          color: #f59e0b !important;
+          text-shadow: 0 0 6px rgba(245, 158, 11, 0.4);
+          box-shadow: 0 0 10px rgba(245, 158, 11, 0.15), inset 0 0 8px rgba(245, 158, 11, 0.05);
+        }
+
+        .medal-silver {
+          background: rgba(148, 163, 184, 0.15) !important;
+          border: 1px solid rgba(148, 163, 184, 0.65) !important;
+          color: #cbd5e1 !important;
+          text-shadow: 0 0 6px rgba(148, 163, 184, 0.4);
+          box-shadow: 0 0 10px rgba(148, 163, 184, 0.1), inset 0 0 8px rgba(148, 163, 184, 0.05);
+        }
+
+        .medal-bronze {
+          background: rgba(180, 83, 9, 0.15) !important;
+          border: 1px solid rgba(180, 83, 9, 0.65) !important;
+          color: #f97316 !important;
+          text-shadow: 0 0 6px rgba(180, 83, 9, 0.4);
+          box-shadow: 0 0 10px rgba(180, 83, 9, 0.1), inset 0 0 8px rgba(180, 83, 9, 0.05);
         }
 
         .info-trigger {

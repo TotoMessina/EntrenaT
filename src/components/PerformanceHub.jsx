@@ -6,6 +6,7 @@ import ReadinessDashboard from './ReadinessDashboard';
 import VdotCalculator from './VdotCalculator';
 import IntervalBuilder from './IntervalBuilder';
 import PersonalBests from './PersonalBests';
+import ConcurrentInterference from './ConcurrentInterference';
 
 export default function PerformanceHub({ 
   workouts = [], 
@@ -19,7 +20,7 @@ export default function PerformanceHub({
   showAlert,
   showConfirm
 }) {
-  const [activeSubTab, setActiveSubTab] = useState('planner'); // planner, shoes, readiness, vdot, intervals, prs
+  const [activeSubTab, setActiveSubTab] = useState('planner'); // planner, shoes, readiness, vdot, intervals, prs, interference
 
   const subTabs = [
     { id: 'planner', label: 'Planificador', icon: Target },
@@ -27,7 +28,8 @@ export default function PerformanceHub({
     { id: 'readiness', label: 'Disposición', icon: Activity },
     { id: 'vdot', label: 'Ritmos VDOT', icon: Sparkles },
     { id: 'intervals', label: 'Consistencia', icon: Medal },
-    { id: 'prs', label: 'Récords', icon: Trophy }
+    { id: 'prs', label: 'Récords', icon: Trophy },
+    { id: 'interference', label: 'Interferencia', icon: ShieldAlert }
   ];
 
   const renderSubTabContent = () => {
@@ -76,6 +78,13 @@ export default function PerformanceHub({
         return (
           <PersonalBests 
             workouts={workouts} 
+          />
+        );
+      case 'interference':
+        return (
+          <ConcurrentInterference 
+            workouts={workouts} 
+            profile={profile} 
           />
         );
       default:

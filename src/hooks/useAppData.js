@@ -74,11 +74,22 @@ export function useAppData() {
     });
   }, []);
 
-  // ── PERSISTENCIA LOCAL REACTIVA ──
-  useEffect(() => { localStorage.setItem('fitanalytics_shoes',           JSON.stringify(shoes));        }, [shoes]);
-  useEffect(() => { localStorage.setItem('fitanalytics_training_plans',  JSON.stringify(plans));        }, [plans]);
-  useEffect(() => { localStorage.setItem('fitanalytics_readiness_logs',  JSON.stringify(readinessLogs));}, [readinessLogs]);
-  useEffect(() => { localStorage.setItem('fitanalytics_nutrition',       JSON.stringify(nutritionLogs));}, [nutritionLogs]);
+  // ── PERSISTENCIA LOCAL REACTIVA (Solo en modo invitado / local) ──
+  useEffect(() => { 
+    if (!user) localStorage.setItem('fitanalytics_shoes', JSON.stringify(shoes));        
+  }, [shoes, user]);
+
+  useEffect(() => { 
+    if (!user) localStorage.setItem('fitanalytics_training_plans', JSON.stringify(plans));        
+  }, [plans, user]);
+
+  useEffect(() => { 
+    if (!user) localStorage.setItem('fitanalytics_readiness_logs', JSON.stringify(readinessLogs));
+  }, [readinessLogs, user]);
+
+  useEffect(() => { 
+    if (!user) localStorage.setItem('fitanalytics_nutrition', JSON.stringify(nutritionLogs));
+  }, [nutritionLogs, user]);
 
   // ── OBSERVADOR DE LOGROS Y GAMIFICACIÓN ──
   useEffect(() => {
@@ -120,41 +131,14 @@ export function useAppData() {
       const { data: remoteData, error } = await client.from('workouts').select('*');
       if (error) throw error;
 
-      const localMap  = new Map(localWorkouts.map(w => [w.id, w]));
-      const remoteMap = new Map((remoteData || []).map(w => [w.id, w]));
-      const merged    = [];
-      const toUpload  = [];
-
-      const isMockWorkout = (id) => {
-        const match = id.match(/^(run|gym)-(\d+)$/);
-        return match ? parseInt(match[2], 10) < 1000 : false;
-      };
-
-      for (const local of localWorkouts) {
-        const remote = remoteMap.get(local.id);
-        if (isMockWorkout(local.id) && !remote) continue;
-        if (remote?.gpx_data && !local.gpxData) local.gpxData = remote.gpx_data;
-        if (!remote) toUpload.push(local);
-        merged.push(local);
-      }
-      for (const remote of (remoteData || [])) {
-        if (!localMap.has(remote.id)) merged.push(supabaseRowToWorkout(remote));
-      }
-      if (toUpload.length > 0) {
-        const { error: uploadError } = await client
-          .from('workouts')
-          .upsert(toUpload.map(w => workoutToSupabasePayload(w, activeUser.id)));
-        if (uploadError) console.error('Supabase synchronization insert error:', uploadError);
-      }
-
-      merged.sort((a, b) => new Date(b.date) - new Date(a.date));
-      localStorage.setItem('fitanalytics_workouts', JSON.stringify(merged));
+      const workoutsList = (remoteData || []).map(supabaseRowToWorkout);
+      workoutsList.sort((a, b) => new Date(b.date) - new Date(a.date));
       setIsSupabaseConnected(true);
-      return merged;
+      return workoutsList;
     } catch (e) {
-      console.error('Supabase bi-directional sync failed, running in local-only fallback mode:', e);
+      console.error('Supabase workouts read failed:', e);
       setIsSupabaseConnected(false);
-      return localWorkouts;
+      return [];
     }
   };
 
@@ -164,56 +148,16 @@ export function useAppData() {
       const { data: remoteData, error } = await client.from('nutrition').select('*');
       if (error) throw error;
 
-      const localMap  = new Map(localNutrition.map(n => [n.id, n]));
-      const remoteMap = new Map((remoteData || []).map(n => [n.id, n]));
-      const merged    = [];
-      const toUpload  = [];
-
-      for (const local of localNutrition) {
-        const remote = remoteMap.get(local.id);
-        if (!remote) {
-          toUpload.push(local);
-          merged.push(local);
-        } else {
-          const mealMap = new Map();
-          (local.meals  || []).forEach(m => mealMap.set(m.id, m));
-          (remote.meals || []).forEach(m => mealMap.set(m.id, m));
-          const uniqueMeals = Array.from(mealMap.values());
-          const mergedLog = { ...local, meals: uniqueMeals };
-          merged.push(mergedLog);
-          if ((local.meals || []).length !== uniqueMeals.length ||
-              (remote.meals || []).length !== uniqueMeals.length) {
-            toUpload.push(mergedLog);
-          }
-        }
-      }
-      for (const remote of (remoteData || [])) {
-        if (!localMap.has(remote.id)) merged.push({ id: remote.id, date: remote.date, meals: remote.meals || [] });
-      }
-
-      if (toUpload.length > 0) {
-        const { error: uploadError } = await client.from('nutrition').upsert(
-          toUpload.map(log => {
-            const meals = log.meals || [];
-            return {
-              id: log.id, user_id: activeUser.id, date: log.date,
-              calories: meals.reduce((s, m) => s + (Number(m.calories) || 0), 0),
-              protein:  meals.reduce((s, m) => s + (Number(m.protein)  || 0), 0),
-              carbs:    meals.reduce((s, m) => s + (Number(m.carbs)    || 0), 0),
-              fat:      meals.reduce((s, m) => s + (Number(m.fat)      || 0), 0),
-              meals,
-            };
-          })
-        );
-        if (uploadError) throw uploadError;
-      }
-
-      merged.sort((a, b) => new Date(b.date) - new Date(a.date));
-      localStorage.setItem('fitanalytics_nutrition', JSON.stringify(merged));
-      return merged;
+      const nutritionList = (remoteData || []).map(remote => ({
+        id: remote.id,
+        date: remote.date,
+        meals: remote.meals || []
+      }));
+      nutritionList.sort((a, b) => new Date(b.date) - new Date(a.date));
+      return nutritionList;
     } catch (e) {
-      console.error('Supabase nutrition bi-directional sync failed:', e);
-      return localNutrition;
+      console.error('Supabase nutrition read failed:', e);
+      return [];
     }
   };
 
@@ -225,35 +169,29 @@ export function useAppData() {
       if (error) throw error;
 
       if (remoteProfile) {
-        const updated = {
+        return {
           age:       Number(remoteProfile.age)       || 25,
           weight:    Number(remoteProfile.weight)    || 75,
           height:    Number(remoteProfile.height)    || 175,
           restingHR: Number(remoteProfile.restingHR) || 60,
           gender:    remoteProfile.gender || 'male',
         };
-        localStorage.setItem('fitanalytics_profile_age',        updated.age.toString());
-        localStorage.setItem('fitanalytics_age',                updated.age.toString());
-        localStorage.setItem('fitanalytics_profile_weight',     updated.weight.toString());
-        localStorage.setItem('fitanalytics_profile_height',     updated.height.toString());
-        localStorage.setItem('fitanalytics_profile_resting_hr', updated.restingHR.toString());
-        localStorage.setItem('fitanalytics_profile_gender',     updated.gender);
-        return updated;
       } else {
+        const defaultProfile = { age: 25, weight: 75, height: 175, restingHR: 60, gender: 'male' };
         const { error: insertError } = await client.from('profiles').insert({
           user_id:   activeUser.id,
-          age:       Number(localProfile.age),
-          weight:    Number(localProfile.weight),
-          height:    Number(localProfile.height),
-          restingHR: Number(localProfile.restingHR),
-          gender:    localProfile.gender,
+          age:       Number(defaultProfile.age),
+          weight:    Number(defaultProfile.weight),
+          height:    Number(defaultProfile.height),
+          restingHR: Number(defaultProfile.restingHR),
+          gender:    defaultProfile.gender,
         });
         if (insertError) throw insertError;
-        return localProfile;
+        return defaultProfile;
       }
     } catch (e) {
       console.error('Supabase profile sync failed:', e);
-      return localProfile;
+      return { age: 25, weight: 75, height: 175, restingHR: 60, gender: 'male' };
     }
   };
 
@@ -263,35 +201,18 @@ export function useAppData() {
       const { data: remoteData, error } = await client.from('shoes').select('*');
       if (error) throw error;
 
-      const localMap  = new Map(localShoes.map(s => [s.id, s]));
-      const remoteMap = new Map((remoteData || []).map(s => [s.id, s]));
-      const merged    = [];
-      const toUpload  = [];
-
-      for (const local of localShoes) {
-        if (!remoteMap.get(local.id)) {
-          toUpload.push({ id: local.id, user_id: activeUser.id, brand: local.brand, model: local.model,
-            initial_km: Number(local.initialKm) || 0, max_km: Number(local.maxKm) || 800,
-            buy_date: local.buyDate, is_active: local.isActive !== false });
-        }
-        merged.push(local);
-      }
-      for (const remote of (remoteData || [])) {
-        if (!localMap.has(remote.id)) {
-          merged.push({ id: remote.id, brand: remote.brand, model: remote.model,
-            initialKm: Number(remote.initial_km) || 0, maxKm: Number(remote.max_km) || 800,
-            buyDate: remote.buy_date, isActive: remote.is_active !== false });
-        }
-      }
-      if (toUpload.length > 0) {
-        const { error: uploadError } = await client.from('shoes').upsert(toUpload);
-        if (uploadError) throw uploadError;
-      }
-      localStorage.setItem('fitanalytics_shoes', JSON.stringify(merged));
-      return merged;
+      return (remoteData || []).map(remote => ({
+        id: remote.id,
+        brand: remote.brand,
+        model: remote.model,
+        initialKm: Number(remote.initial_km) || 0,
+        maxKm: Number(remote.max_km) || 800,
+        buyDate: remote.buy_date,
+        isActive: remote.is_active !== false
+      }));
     } catch (e) {
-      console.error('Supabase shoes bi-directional sync failed:', e);
-      return localShoes;
+      console.error('Supabase shoes read failed:', e);
+      return [];
     }
   };
 
@@ -301,33 +222,15 @@ export function useAppData() {
       const { data: remoteData, error } = await client.from('training_plans').select('*');
       if (error) throw error;
 
-      const localMap  = new Map(localPlans.map(p => [p.date, p]));
-      const remoteMap = new Map((remoteData || []).map(p => [p.date, p]));
-      const merged    = [];
-      const toUpload  = [];
-
-      for (const local of localPlans) {
-        if (!remoteMap.get(local.date)) {
-          toUpload.push({ date: local.date, user_id: activeUser.id,
-            distance: Number(local.distance) || 0, session_type: local.sessionType || 'Regenerativo', note: local.note || '' });
-        }
-        merged.push(local);
-      }
-      for (const remote of (remoteData || [])) {
-        if (!localMap.has(remote.date)) {
-          merged.push({ date: remote.date, distance: Number(remote.distance) || 0,
-            sessionType: remote.session_type || 'Regenerativo', note: remote.note || '' });
-        }
-      }
-      if (toUpload.length > 0) {
-        const { error: uploadError } = await client.from('training_plans').upsert(toUpload);
-        if (uploadError) throw uploadError;
-      }
-      localStorage.setItem('fitanalytics_training_plans', JSON.stringify(merged));
-      return merged;
+      return (remoteData || []).map(remote => ({
+        date: remote.date,
+        distance: Number(remote.distance) || 0,
+        sessionType: remote.session_type || 'Regenerativo',
+        note: remote.note || ''
+      }));
     } catch (e) {
-      console.error('Supabase training plans bi-directional sync failed:', e);
-      return localPlans;
+      console.error('Supabase plans read failed:', e);
+      return [];
     }
   };
 
@@ -337,35 +240,17 @@ export function useAppData() {
       const { data: remoteData, error } = await client.from('readiness_logs').select('*');
       if (error) throw error;
 
-      const localMap  = new Map(localReadiness.map(l => [l.date, l]));
-      const remoteMap = new Map((remoteData || []).map(l => [l.date, l]));
-      const merged    = [];
-      const toUpload  = [];
-
-      for (const local of localReadiness) {
-        if (!remoteMap.get(local.date)) {
-          toUpload.push({ date: local.date, user_id: activeUser.id,
-            sleep: Number(local.sleep) || 4, soreness: Number(local.soreness) || 2,
-            resting_hr: Number(local.restingHr) || 60, hrv: local.hrv ? Number(local.hrv) : null, notes: local.notes || '' });
-        }
-        merged.push(local);
-      }
-      for (const remote of (remoteData || [])) {
-        if (!localMap.has(remote.date)) {
-          merged.push({ date: remote.date, sleep: Number(remote.sleep) || 4,
-            soreness: Number(remote.soreness) || 2, restingHr: Number(remote.resting_hr) || 60,
-            hrv: remote.hrv ? Number(remote.hrv) : null, notes: remote.notes || '' });
-        }
-      }
-      if (toUpload.length > 0) {
-        const { error: uploadError } = await client.from('readiness_logs').upsert(toUpload);
-        if (uploadError) throw uploadError;
-      }
-      localStorage.setItem('fitanalytics_readiness_logs', JSON.stringify(merged));
-      return merged;
+      return (remoteData || []).map(remote => ({
+        date: remote.date,
+        sleep: Number(remote.sleep) || 4,
+        soreness: Number(remote.soreness) || 2,
+        restingHr: Number(remote.resting_hr) || 60,
+        hrv: remote.hrv ? Number(remote.hrv) : null,
+        notes: remote.notes || ''
+      }));
     } catch (e) {
-      console.error('Supabase readiness logs bi-directional sync failed:', e);
-      return localReadiness;
+      console.error('Supabase readiness logs read failed:', e);
+      return [];
     }
   };
 
@@ -414,12 +299,18 @@ export function useAppData() {
       if (event === 'SIGNED_IN' && newSession) {
         runSync(client, newSession.user);
       } else if (event === 'SIGNED_OUT') {
-        setWorkouts(initWorkouts);
-        setNutritionLogs(initNutrition);
-        setProfile(initProfile);
-        setShoes(initShoes);
-        setPlans(initPlans);
-        setReadinessLogs(initReadiness);
+        setWorkouts(readLocalJSON('fitanalytics_workouts', MOCK_WORKOUTS));
+        setNutritionLogs(readLocalJSON('fitanalytics_nutrition', []));
+        setShoes(readLocalJSON('fitanalytics_shoes', []));
+        setPlans(readLocalJSON('fitanalytics_training_plans', []));
+        setReadinessLogs(readLocalJSON('fitanalytics_readiness_logs', []));
+        setProfile({
+          age:       Number(localStorage.getItem('fitanalytics_profile_age') || localStorage.getItem('fitanalytics_age')) || 25,
+          weight:    Number(localStorage.getItem('fitanalytics_profile_weight'))   || 75,
+          height:    Number(localStorage.getItem('fitanalytics_profile_height'))   || 175,
+          restingHR: Number(localStorage.getItem('fitanalytics_profile_resting_hr')) || 60,
+          gender:    localStorage.getItem('fitanalytics_profile_gender') || 'male',
+        });
       }
     });
 
@@ -509,7 +400,9 @@ export function useAppData() {
   const handleSaveWorkout = useCallback(async (newWorkout) => {
     setWorkouts(prev => {
       const updated = [newWorkout, ...prev];
-      localStorage.setItem('fitanalytics_workouts', JSON.stringify(updated));
+      if (!user) {
+        localStorage.setItem('fitanalytics_workouts', JSON.stringify(updated));
+      }
       return updated;
     });
     const client = getSupabase();
@@ -517,14 +410,16 @@ export function useAppData() {
       try {
         const { error } = await client.from('workouts').insert(workoutToSupabasePayload(newWorkout, user.id));
         if (error) throw error;
-      } catch (e) { console.error('Supabase insertion error. Item cached locally:', e); }
+      } catch (e) { console.error('Supabase insertion error:', e); }
     }
   }, [user]);
 
   const handleDeleteWorkout = useCallback(async (id) => {
     setWorkouts(prev => {
       const updated = prev.filter(w => w.id !== id);
-      localStorage.setItem('fitanalytics_workouts', JSON.stringify(updated));
+      if (!user) {
+        localStorage.setItem('fitanalytics_workouts', JSON.stringify(updated));
+      }
       return updated;
     });
     const client = getSupabase();
@@ -539,7 +434,9 @@ export function useAppData() {
   const handleUpdateWorkout = useCallback(async (updatedWorkout) => {
     setWorkouts(prev => {
       const updated = prev.map(w => w.id === updatedWorkout.id ? updatedWorkout : w);
-      localStorage.setItem('fitanalytics_workouts', JSON.stringify(updated));
+      if (!user) {
+        localStorage.setItem('fitanalytics_workouts', JSON.stringify(updated));
+      }
       return updated;
     });
     const client = getSupabase();
@@ -553,7 +450,9 @@ export function useAppData() {
 
   const handleUpdateNutrition = useCallback(async (updatedLogs) => {
     setNutritionLogs(updatedLogs);
-    localStorage.setItem('fitanalytics_nutrition', JSON.stringify(updatedLogs));
+    if (!user) {
+      localStorage.setItem('fitanalytics_nutrition', JSON.stringify(updatedLogs));
+    }
     const client = getSupabase();
     if (client && user) {
       try {
@@ -582,7 +481,9 @@ export function useAppData() {
 
   const handleUpdateShoes = useCallback(async (updatedShoes) => {
     setShoes(updatedShoes);
-    localStorage.setItem('fitanalytics_shoes', JSON.stringify(updatedShoes));
+    if (!user) {
+      localStorage.setItem('fitanalytics_shoes', JSON.stringify(updatedShoes));
+    }
     const client = getSupabase();
     if (client && user) {
       try {
@@ -603,7 +504,9 @@ export function useAppData() {
 
   const handleUpdatePlans = useCallback(async (updatedPlans) => {
     setPlans(updatedPlans);
-    localStorage.setItem('fitanalytics_training_plans', JSON.stringify(updatedPlans));
+    if (!user) {
+      localStorage.setItem('fitanalytics_training_plans', JSON.stringify(updatedPlans));
+    }
     const client = getSupabase();
     if (client && user) {
       try {
@@ -623,7 +526,9 @@ export function useAppData() {
 
   const handleUpdateReadinessLogs = useCallback(async (updatedReadiness) => {
     setReadinessLogs(updatedReadiness);
-    localStorage.setItem('fitanalytics_readiness_logs', JSON.stringify(updatedReadiness));
+    if (!user) {
+      localStorage.setItem('fitanalytics_readiness_logs', JSON.stringify(updatedReadiness));
+    }
     const client = getSupabase();
     if (client && user) {
       try {
@@ -644,12 +549,14 @@ export function useAppData() {
 
   const handleProfileChange = useCallback(async (newProfile) => {
     setProfile(newProfile);
-    localStorage.setItem('fitanalytics_profile_age',        newProfile.age.toString());
-    localStorage.setItem('fitanalytics_age',                newProfile.age.toString());
-    localStorage.setItem('fitanalytics_profile_weight',     newProfile.weight.toString());
-    localStorage.setItem('fitanalytics_profile_height',     newProfile.height.toString());
-    localStorage.setItem('fitanalytics_profile_resting_hr', newProfile.restingHR.toString());
-    localStorage.setItem('fitanalytics_profile_gender',     newProfile.gender);
+    if (!user) {
+      localStorage.setItem('fitanalytics_profile_age',        newProfile.age.toString());
+      localStorage.setItem('fitanalytics_age',                newProfile.age.toString());
+      localStorage.setItem('fitanalytics_profile_weight',     newProfile.weight.toString());
+      localStorage.setItem('fitanalytics_profile_height',     newProfile.height.toString());
+      localStorage.setItem('fitanalytics_profile_resting_hr', newProfile.restingHR.toString());
+      localStorage.setItem('fitanalytics_profile_gender',     newProfile.gender);
+    }
     const client = getSupabase();
     if (client && user) {
       try {
@@ -665,7 +572,9 @@ export function useAppData() {
 
   const handleUpdateAllWorkouts = useCallback(async (allWorkouts) => {
     setWorkouts(allWorkouts);
-    localStorage.setItem('fitanalytics_workouts', JSON.stringify(allWorkouts));
+    if (!user) {
+      localStorage.setItem('fitanalytics_workouts', JSON.stringify(allWorkouts));
+    }
     const client = getSupabase();
     if (client && user) {
       try {
@@ -686,7 +595,9 @@ export function useAppData() {
       '¿Estás seguro de que deseas restablecer los datos de demostración? Esto borrará tus entrenamientos actuales permanentemente.'
     );
     if (confirmed) {
-      localStorage.setItem('fitanalytics_workouts', JSON.stringify(MOCK_WORKOUTS));
+      if (!user) {
+        localStorage.setItem('fitanalytics_workouts', JSON.stringify(MOCK_WORKOUTS));
+      }
       setWorkouts(MOCK_WORKOUTS);
       const client = getSupabase();
       if (client && user) {

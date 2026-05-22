@@ -1534,5 +1534,109 @@ export const calculateACWRData = (workouts = []) => {
   };
 };
 
+/**
+ * Calcula el volumen total de una sesión de gimnasio.
+ * Soporta tanto la estructura de sets detallados (ex.sets) como el formato heredado/legacy.
+ */
+export const getGymSessionVolume = (workout) => {
+  return workout.exercises?.reduce((sum, ex) => {
+    if (Array.isArray(ex.sets)) {
+      return sum + ex.sets.reduce((exSum, s) => {
+        if (s.done !== false) {
+          const w = parseFloat(s.weight) || 0;
+          const r = parseFloat(s.reps) || 0;
+          return exSum + (w * r);
+        }
+        return exSum;
+      }, 0);
+    } else {
+      const sets = Number(ex.sets) || 0;
+      const reps = Number(ex.reps) || 0;
+      const weight = Number(ex.weight) || 0;
+      return sum + (sets * reps * weight);
+    }
+  }, 0) || 0;
+};
+
+/**
+ * Encuentra el levantamiento máximo (peso de una sola serie) en una sesión de gimnasio.
+ * Soporta tanto la estructura de sets detallados (ex.sets) como el formato heredado/legacy.
+ */
+export const getGymSessionMaxWeight = (workout) => {
+  let max = 0;
+  workout.exercises?.forEach(ex => {
+    if (Array.isArray(ex.sets)) {
+      ex.sets.forEach(s => {
+        const w = Number(s.weight) || 0;
+        if (w > max) max = w;
+      });
+    } else {
+      const w = Number(ex.weight) || 0;
+      if (w > max) max = w;
+    }
+  });
+  return max;
+};
+
+/**
+ * Calcula los récords globales (los 3 mejores entrenamientos de todos los tiempos)
+ * para cada una de las 4 categorías de rendimiento:
+ * - Distancia Máxima Running
+ * - Mejor Ritmo Running
+ * - Volumen Máximo de Sesión Gym
+ * - Levantamiento Máximo Gym
+ */
+export const getGlobalTop3Records = (workouts = []) => {
+  if (!workouts || workouts.length === 0) {
+    return { distance: [], pace: [], volume: [], weight: [] };
+  }
+
+  // 1. Filtrar y ordenar corridas por Distancia Máxima
+  const runs = workouts.filter(w => w.type === 'running' && Number(w.distance) > 0 && w.duration);
+  const distSorted = [...runs].sort((a, b) => {
+    const diff = Number(b.distance) - Number(a.distance);
+    if (diff !== 0) return diff;
+    return b.date.localeCompare(a.date); // Más reciente primero si hay empate
+  });
+
+  // 2. Filtrar y ordenar corridas por Mejor Ritmo (segundos por km, menor es mejor)
+  const runsWithPace = runs.map(w => {
+    const secs = timeStringToSeconds(w.duration);
+    const d = Number(w.distance);
+    const pace = secs / d;
+    return { ...w, pace };
+  }).filter(w => w.pace > 0);
+
+  const paceSorted = [...runsWithPace].sort((a, b) => {
+    const diff = a.pace - b.pace;
+    if (diff !== 0) return diff;
+    return b.date.localeCompare(a.date);
+  });
+
+  // 3. Filtrar y ordenar entrenamientos de fuerza por Volumen Máximo de Sesión
+  const gym = workouts.filter(w => w.type === 'gym');
+  const gymWithVol = gym.map(w => ({ ...w, vol: getGymSessionVolume(w) })).filter(w => w.vol > 0);
+  const volSorted = [...gymWithVol].sort((a, b) => {
+    const diff = b.vol - a.vol;
+    if (diff !== 0) return diff;
+    return b.date.localeCompare(a.date);
+  });
+
+  // 4. Filtrar y ordenar entrenamientos de fuerza por Levantamiento Máximo
+  const gymWithMaxWt = gym.map(w => ({ ...w, maxWt: getGymSessionMaxWeight(w) })).filter(w => w.maxWt > 0);
+  const wtSorted = [...gymWithMaxWt].sort((a, b) => {
+    const diff = b.maxWt - a.maxWt;
+    if (diff !== 0) return diff;
+    return b.date.localeCompare(a.date);
+  });
+
+  return {
+    distance: distSorted.slice(0, 3),
+    pace: paceSorted.slice(0, 3),
+    volume: volSorted.slice(0, 3),
+    weight: wtSorted.slice(0, 3)
+  };
+};
+
 
 

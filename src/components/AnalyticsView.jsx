@@ -14,7 +14,7 @@ import {
   Filler
 } from 'chart.js';
 import { timeStringToSeconds, secondsToTimeString, calculate1RM } from '../utils/calculators';
-import { TrendingUp, Dumbbell, PieChart, BarChart2, Trophy, Award, Crown, Zap, ChevronRight } from 'lucide-react';
+import { TrendingUp, Dumbbell, PieChart, BarChart2, Trophy, Award, Crown, Zap, ChevronRight, Flame, ShieldCheck, Lock, Activity, Calendar, Timer, Sparkles } from 'lucide-react';
 
 // Register Chart.js components
 ChartJS.register(
@@ -500,6 +500,168 @@ export default function AnalyticsView({ workouts, theme }) {
     }
   };
 
+  // --- 5. LIFETIME STATS ---
+  const totalRunningKm = Math.round(runningWorkouts.reduce((sum, w) => sum + Number(w.distance || 0), 0) * 10) / 10;
+  const totalGymVolumeKg = gymVolumes.reduce((sum, vol) => sum + vol, 0);
+  const totalGymTonnageTons = Math.round((totalGymVolumeKg / 1000) * 10) / 10;
+  
+  const totalCardioSeconds = runningWorkouts.reduce((sum, w) => sum + timeStringToSeconds(w.duration), 0);
+  const totalCardioHours = Math.floor(totalCardioSeconds / 3600);
+  const totalCardioMinutes = Math.floor((totalCardioSeconds % 3600) / 60);
+  const totalCardioFormatted = `${totalCardioHours}h ${totalCardioMinutes}m`;
+  
+  let avgWorkoutsPerWeek = 0;
+  if (workouts.length > 0) {
+    const dates = workouts.map(w => new Date(w.date + 'T00:00:00')).sort((a, b) => a - b);
+    const firstDate = dates[0];
+    const lastDate = dates[dates.length - 1];
+    const diffTime = Math.abs(lastDate - firstDate);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
+    const diffWeeks = Math.max(1, diffDays / 7);
+    avgWorkoutsPerWeek = Math.round((workouts.length / diffWeeks) * 10) / 10;
+  }
+
+  // --- 6. SECOND-TIER STRENGTH RECORDS ---
+  const overheadPressPR = getBest1RMRecord(['militar', 'overhead', 'shoulder press', 'press militar']);
+  const pullupsPR = getBest1RMRecord(['dominada', 'pull-up', 'pullup', 'chin-up']);
+  const bicepsCurlPR = getBest1RMRecord(['curl de biceps', 'curl de bíceps', 'biceps curl', 'curl biceps']);
+
+  // --- 7. CARDIOVASCULAR EFFICIENCY INDEX CHART ---
+  const runningWithHR = runningWorkouts.filter(w => {
+    const dist = Number(w.distance || 0);
+    const hrs = w.heartRate ? Number(w.heartRate) : 0;
+    const secs = timeStringToSeconds(w.duration);
+    return dist > 0 && hrs > 0 && secs > 0;
+  });
+
+  const efficiencyDates = runningWithHR.map(w => {
+    return new Date(w.date + 'T00:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+  });
+
+  const efficiencyValues = runningWithHR.map(w => {
+    const distMeters = Number(w.distance) * 1000;
+    const secs = timeStringToSeconds(w.duration);
+    const speedMps = distMeters / secs;
+    const hr = Number(w.heartRate);
+    const eff = (speedMps / hr) * 1000;
+    return Math.round(eff * 100) / 100;
+  });
+
+  const efficiencyChartData = {
+    labels: efficiencyDates,
+    datasets: [
+      {
+        label: 'Índice de Eficiencia (m/s por latido * 1000)',
+        data: efficiencyValues,
+        borderColor: '#06b6d4',
+        backgroundColor: isLight ? 'rgba(6, 182, 212, 0.05)' : 'rgba(6, 182, 212, 0.1)',
+        borderWidth: 3,
+        pointBackgroundColor: '#06b6d4',
+        pointBorderColor: '#ffffff',
+        pointBorderWidth: 1.5,
+        pointHoverRadius: 6,
+        fill: true,
+        tension: 0.3,
+      }
+    ]
+  };
+
+  const efficiencyChartOptions = {
+    responsive: true,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: (context) => ` Eficiencia: ${context.raw} pts`
+        }
+      }
+    },
+    scales: {
+      y: {
+        grid: { color: gridColor },
+        ticks: { color: textColor },
+        title: { display: true, text: 'Eficiencia Fisiológica', color: textColor }
+      },
+      x: {
+        grid: { display: false },
+        ticks: { color: textColor }
+      }
+    }
+  };
+
+  // --- 8. GAMIFIED CYBERPUNK MILESTONES ---
+  const hasRayoVerde = runningWorkouts.some(w => {
+    const dist = Number(w.distance || 0);
+    if (dist >= 5) {
+      const paceSecs = timeStringToSeconds(w.duration) / dist;
+      return paceSecs <= 300; // <= 5:00 min/km
+    }
+    return false;
+  });
+
+  const hasEspirituErrante = runningWorkouts.some(w => Number(w.distance || 0) >= 12);
+  const hasHerculesAcero = gymVolumes.some(vol => vol >= 3000);
+  const hasMonarcaPesoMuerto = deadliftPR && deadliftPR.oneRepMax >= 100;
+  const hasAbsorbenteHierro = totalGymVolumeKg >= 15000;
+  const hasCorazonTitanio = totalRunningKm >= 80;
+
+  const milestones = [
+    {
+      id: 'rayo-verde',
+      title: 'Rayo Verde',
+      desc: 'Correr 5K o más a un ritmo promedio inferior a 5:00 min/km.',
+      unlocked: hasRayoVerde,
+      icon: Flame,
+      color: '#10b981',
+      glowColor: 'rgba(16, 185, 129, 0.35)',
+    },
+    {
+      id: 'espiritu-errante',
+      title: 'Espíritu Errante',
+      desc: 'Completar una carrera de fondo de al menos 12 kilómetros.',
+      unlocked: hasEspirituErrante,
+      icon: Sparkles,
+      color: '#3b82f6',
+      glowColor: 'rgba(59, 130, 246, 0.35)',
+    },
+    {
+      id: 'hercules-acero',
+      title: 'Hércules de Acero',
+      desc: 'Levantar un volumen de al menos 3,000 kg en una sola sesión de gimnasio.',
+      unlocked: hasHerculesAcero,
+      icon: Trophy,
+      color: '#ec4899',
+      glowColor: 'rgba(236, 72, 153, 0.35)',
+    },
+    {
+      id: 'monarca-peso-muerto',
+      title: 'Monarca del Peso Muerto',
+      desc: 'Alcanzar un 1RM estimado en Peso Muerto de 100 kg o superior.',
+      unlocked: hasMonarcaPesoMuerto,
+      icon: Crown,
+      color: '#8b5cf6',
+      glowColor: 'rgba(139, 92, 246, 0.35)',
+    },
+    {
+      id: 'absorbente-hierro',
+      title: 'Absorbente de Hierro',
+      desc: 'Acumular un volumen total de gimnasio de 15,000 kg o más.',
+      unlocked: hasAbsorbenteHierro,
+      icon: Dumbbell,
+      color: '#f59e0b',
+      glowColor: 'rgba(245, 158, 11, 0.35)',
+    },
+    {
+      id: 'corazon-titanio',
+      title: 'Corazón de Titanio',
+      desc: 'Acumular una distancia total de running de 80 kilómetros o más.',
+      unlocked: hasCorazonTitanio,
+      icon: Activity,
+      color: '#06b6d4',
+      glowColor: 'rgba(6, 182, 212, 0.35)',
+    }
+  ];
+
   return (
     <div className="analytics-container fade-in">
       <header className="analytics-header">
@@ -508,6 +670,48 @@ export default function AnalyticsView({ workouts, theme }) {
           <p className="text-secondary text-sm">Visualiza tus mejoras acumuladas, patrones de entrenamiento y sobrecarga progresiva.</p>
         </div>
       </header>
+
+      {workouts.length > 0 && (
+        <section className="lifetime-stats-section fade-in mb-6">
+          <div className="lifetime-stats-grid">
+            <div className="glass-card stats-mini-card km-run">
+              <div className="stats-mini-header">
+                <span className="stats-mini-label">Distancia Running Acumulada</span>
+                <Activity size={16} style={{ color: 'var(--color-running)' }} />
+              </div>
+              <div className="stats-mini-value">{totalRunningKm} <span className="stats-mini-unit">km</span></div>
+              <p className="stats-mini-desc">Kilómetros totales recorridos a pie</p>
+            </div>
+
+            <div className="glass-card stats-mini-card gym-ton">
+              <div className="stats-mini-header">
+                <span className="stats-mini-label">Tonelaje Gimnasio Acumulado</span>
+                <Flame size={16} style={{ color: 'var(--color-gym)' }} />
+              </div>
+              <div className="stats-mini-value">{totalGymTonnageTons} <span className="stats-mini-unit">Tn</span></div>
+              <p className="stats-mini-desc">Carga de entrenamiento total levantada</p>
+            </div>
+
+            <div className="glass-card stats-mini-card hours-card">
+              <div className="stats-mini-header">
+                <span className="stats-mini-label">Tiempo Total de Cardio</span>
+                <Timer size={16} style={{ color: 'var(--color-running)' }} />
+              </div>
+              <div className="stats-mini-value">{totalCardioFormatted}</div>
+              <p className="stats-mini-desc">Tiempo acumulado en suela de carrera</p>
+            </div>
+
+            <div className="glass-card stats-mini-card consistency-card">
+              <div className="stats-mini-header">
+                <span className="stats-mini-label">Consistencia Global</span>
+                <Calendar size={16} className="text-primary-glow" />
+              </div>
+              <div className="stats-mini-value">{avgWorkoutsPerWeek} <span className="stats-mini-unit">ses/sem</span></div>
+              <p className="stats-mini-desc">Frecuencia de entrenamiento semanal</p>
+            </div>
+          </div>
+        </section>
+      )}
 
       {workouts.length === 0 ? (
         <div className="glass-card empty-state-analytics">
@@ -627,6 +831,112 @@ export default function AnalyticsView({ workouts, theme }) {
                 )}
               </div>
             </div>
+
+            <h3 className="section-subtitle-secondary flex-center mt-6 mb-3" style={{ fontSize: '1rem', color: 'var(--text-secondary)', fontWeight: 600, gap: '0.4rem', marginTop: '1.75rem' }}>
+              <Dumbbell size={16} style={{ color: 'var(--color-primary)' }} />
+              Récords Secundarios de Fuerza (Aislamiento y Accesorios)
+            </h3>
+            
+            <div className="pr-cards-grid secondary-pr-grid mb-6">
+              {/* Card 4: Press Militar */}
+              <div className="glass-card pr-card pr-military" style={{ minHeight: '220px' }}>
+                <div className="pr-card-header-row">
+                  <div className="pr-icon-glow flex-center" style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.25)' }}>
+                    <Flame size={18} />
+                  </div>
+                  <span className="pr-card-badge" style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b' }}>Hombros</span>
+                </div>
+                <h3 className="pr-exercise-title">Press Militar</h3>
+                {overheadPressPR ? (
+                  <div className="pr-stats-area">
+                    <div className="pr-1rm-value" style={{ fontSize: '1.85rem' }}>{overheadPressPR.oneRepMax} <span className="pr-unit">kg</span></div>
+                    <div className="pr-detail-pill">{overheadPressPR.weight} kg x {overheadPressPR.reps} reps</div>
+                    <div className="pr-date-row">
+                      <Zap size={10} className="text-primary-glow" />
+                      <span>Logrado el {overheadPressPR.date}</span>
+                    </div>
+                    <button 
+                      onClick={() => handleViewProgression(overheadPressPR.exerciseName)}
+                      className="btn btn-pr-action flex-center mt-3"
+                    >
+                      <span>Evolución Temporal</span>
+                      <ChevronRight size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="pr-stats-empty">
+                    <p className="text-muted text-2xs mt-2 mb-3">Sin marcas registradas aún.</p>
+                    <div className="pr-detail-pill disabled">-- kg</div>
+                  </div>
+                )}
+              </div>
+
+              {/* Card 5: Dominadas */}
+              <div className="glass-card pr-card pr-pullups" style={{ minHeight: '220px' }}>
+                <div className="pr-card-header-row">
+                  <div className="pr-icon-glow flex-center" style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', border: '1px solid rgba(59, 130, 246, 0.25)' }}>
+                    <Crown size={18} />
+                  </div>
+                  <span className="pr-card-badge" style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' }}>Espalda / Tirón</span>
+                </div>
+                <h3 className="pr-exercise-title">Dominadas</h3>
+                {pullupsPR ? (
+                  <div className="pr-stats-area">
+                    <div className="pr-1rm-value" style={{ fontSize: '1.85rem' }}>{pullupsPR.oneRepMax} <span className="pr-unit">kg</span></div>
+                    <div className="pr-detail-pill">{pullupsPR.weight} kg x {pullupsPR.reps} reps</div>
+                    <div className="pr-date-row">
+                      <Zap size={10} className="text-primary-glow" />
+                      <span>Logrado el {pullupsPR.date}</span>
+                    </div>
+                    <button 
+                      onClick={() => handleViewProgression(pullupsPR.exerciseName)}
+                      className="btn btn-pr-action flex-center mt-3"
+                    >
+                      <span>Evolución Temporal</span>
+                      <ChevronRight size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="pr-stats-empty">
+                    <p className="text-muted text-2xs mt-2 mb-3">Sin marcas registradas aún.</p>
+                    <div className="pr-detail-pill disabled">-- kg</div>
+                  </div>
+                )}
+              </div>
+
+              {/* Card 6: Curl de Bíceps */}
+              <div className="glass-card pr-card pr-biceps" style={{ minHeight: '220px' }}>
+                <div className="pr-card-header-row">
+                  <div className="pr-icon-glow flex-center" style={{ background: 'rgba(168, 85, 247, 0.1)', color: '#a855f7', border: '1px solid rgba(168, 85, 247, 0.25)' }}>
+                    <Sparkles size={18} />
+                  </div>
+                  <span className="pr-card-badge" style={{ background: 'rgba(168, 85, 247, 0.1)', color: '#a855f7' }}>Brazos</span>
+                </div>
+                <h3 className="pr-exercise-title">Curl de Bíceps</h3>
+                {bicepsCurlPR ? (
+                  <div className="pr-stats-area">
+                    <div className="pr-1rm-value" style={{ fontSize: '1.85rem' }}>{bicepsCurlPR.oneRepMax} <span className="pr-unit">kg</span></div>
+                    <div className="pr-detail-pill">{bicepsCurlPR.weight} kg x {bicepsCurlPR.reps} reps</div>
+                    <div className="pr-date-row">
+                      <Zap size={10} className="text-primary-glow" />
+                      <span>Logrado el {bicepsCurlPR.date}</span>
+                    </div>
+                    <button 
+                      onClick={() => handleViewProgression(bicepsCurlPR.exerciseName)}
+                      className="btn btn-pr-action flex-center mt-3"
+                    >
+                      <span>Evolución Temporal</span>
+                      <ChevronRight size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="pr-stats-empty">
+                    <p className="text-muted text-2xs mt-2 mb-3">Sin marcas registradas aún.</p>
+                    <div className="pr-detail-pill disabled">-- kg</div>
+                  </div>
+                )}
+              </div>
+            </div>
           </section>
 
           {/* Section: Running Personal Bests (Strava Style) */}
@@ -740,6 +1050,24 @@ export default function AnalyticsView({ workouts, theme }) {
             </div>
           </div>
 
+          {/* Chart 5: Cardiovascular Efficiency Index */}
+          <div className="glass-card chart-card">
+            <div className="chart-card-header">
+              <h3 className="chart-title flex-center">
+                <Activity size={18} style={{ color: '#06b6d4' }} /> 
+                Índice de Eficiencia Cardiovascular (Carrera)
+              </h3>
+              <span className="text-muted text-xs">Fórmula: Velocidad (m/s) / Pulso medio × 1000 (mayor es mejor)</span>
+            </div>
+            <div className="chart-wrapper-canvas">
+              {runningWithHR.length < 2 ? (
+                <div className="empty-chart-notice">Registra al menos 2 corridas con sensor de pulso para evaluar tu eficiencia.</div>
+              ) : (
+                <Line data={efficiencyChartData} options={efficiencyChartOptions} />
+              )}
+            </div>
+          </div>
+
           {/* Chart 2: Gym Volume (Kg) */}
           <div className="glass-card chart-card">
             <div className="chart-card-header">
@@ -814,6 +1142,51 @@ export default function AnalyticsView({ workouts, theme }) {
           </div>
 
         </div>
+
+        {/* Section: Hitos y Logros de Rendimiento */}
+        <section className="milestones-section fade-in mt-6" style={{ marginTop: '2rem' }}>
+          <h2 className="section-subtitle flex-center mb-3">
+            <Award size={20} style={{ color: 'var(--color-primary)' }} />
+            Hitos y Logros de Rendimiento (Gamificación)
+          </h2>
+          <p className="text-secondary text-xs mb-4">
+            Desbloquea insignias holográficas de élite completando hazañas reales de entrenamiento registradas en tu historial.
+          </p>
+
+          <div className="milestones-grid">
+            {milestones.map(m => {
+              const IconComponent = m.icon;
+              return (
+                <div 
+                  key={m.id} 
+                  className={`glass-card milestone-badge-card ${m.unlocked ? 'unlocked' : 'locked'}`}
+                  style={{ 
+                    '--milestone-color': m.color,
+                    '--milestone-glow': m.glowColor
+                  }}
+                >
+                  <div className="milestone-badge-glow-effect"></div>
+                  <div className="milestone-card-inner">
+                    <div className="milestone-icon-wrapper">
+                      {m.unlocked ? (
+                        <IconComponent size={24} className="milestone-icon" />
+                      ) : (
+                        <Lock size={20} className="milestone-lock-icon" />
+                      )}
+                    </div>
+                    <div className="milestone-info">
+                      <h4 className="milestone-title flex-center">
+                        {m.title}
+                        {m.unlocked && <span className="milestone-unlocked-tag">Desbloqueado</span>}
+                      </h4>
+                      <p className="milestone-desc">{m.desc}</p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
       </>
       )}
 
@@ -1151,6 +1524,230 @@ export default function AnalyticsView({ workouts, theme }) {
         .exercise-chart-select:focus {
           outline: none;
           border-color: var(--color-primary);
+        }
+
+        /* Lifetime Stats Grid */
+        .lifetime-stats-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+          gap: 1.25rem;
+          margin-bottom: 1.5rem;
+        }
+
+        .stats-mini-card {
+          padding: 1.25rem;
+          border-radius: 16px;
+          display: flex;
+          flex-direction: column;
+          gap: 0.5rem;
+          position: relative;
+          overflow: hidden;
+          background: rgba(255, 255, 255, 0.015);
+          border: 1px solid var(--border-light);
+          transition: all var(--transition-medium);
+        }
+
+        .stats-mini-card:hover {
+          transform: translateY(-3px);
+          background: rgba(255, 255, 255, 0.025);
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+        }
+
+        .km-run:hover {
+          border-color: rgba(16, 185, 129, 0.3);
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3), 0 0 15px rgba(16, 185, 129, 0.1);
+        }
+
+        .gym-ton:hover {
+          border-color: rgba(236, 72, 153, 0.3);
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3), 0 0 15px rgba(236, 72, 153, 0.1);
+        }
+
+        .hours-card:hover {
+          border-color: rgba(14, 165, 233, 0.3);
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3), 0 0 15px rgba(14, 165, 233, 0.1);
+        }
+
+        .consistency-card:hover {
+          border-color: rgba(139, 92, 246, 0.3);
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3), 0 0 15px rgba(139, 92, 246, 0.1);
+        }
+
+        .stats-mini-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+
+        .stats-mini-label {
+          font-size: 0.7rem;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          color: var(--text-muted);
+        }
+
+        .stats-mini-value {
+          font-size: 1.85rem;
+          font-weight: 900;
+          color: var(--text-primary);
+          font-family: var(--font-sans);
+          line-height: 1;
+        }
+
+        .stats-mini-unit {
+          font-size: 0.9rem;
+          font-weight: 500;
+          color: var(--text-muted);
+          margin-left: 0.15rem;
+        }
+
+        .stats-mini-desc {
+          font-size: 0.65rem;
+          color: var(--text-muted);
+          margin: 0;
+        }
+
+        /* Secondary PR Cards hover effects */
+        .pr-military {
+          border-color: rgba(245, 158, 11, 0.12);
+        }
+        .pr-military:hover {
+          border-color: rgba(245, 158, 11, 0.35);
+          box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4), 0 0 20px rgba(245, 158, 11, 0.15);
+        }
+        .pr-pullups {
+          border-color: rgba(59, 130, 246, 0.12);
+        }
+        .pr-pullups:hover {
+          border-color: rgba(59, 130, 246, 0.35);
+          box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4), 0 0 20px rgba(59, 130, 246, 0.15);
+        }
+        .pr-biceps {
+          border-color: rgba(168, 85, 247, 0.12);
+        }
+        .pr-biceps:hover {
+          border-color: rgba(168, 85, 247, 0.35);
+          box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4), 0 0 20px rgba(168, 85, 247, 0.15);
+        }
+
+        /* Milestones Section */
+        .milestones-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+          gap: 1.25rem;
+          margin-top: 1rem;
+        }
+
+        .milestone-badge-card {
+          padding: 1.25rem;
+          border-radius: 20px;
+          position: relative;
+          overflow: hidden;
+          background: rgba(255, 255, 255, 0.015);
+          border: 1px solid var(--border-light);
+          transition: all var(--transition-medium);
+        }
+
+        .milestone-badge-card.unlocked {
+          border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .milestone-badge-card.unlocked:hover {
+          transform: translateY(-5px) scale(1.01);
+          border-color: var(--milestone-color);
+          box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4), 0 0 20px var(--milestone-glow);
+        }
+
+        .milestone-badge-card.locked {
+          filter: grayscale(0.8) opacity(0.55);
+          background: rgba(0, 0, 0, 0.15);
+          border-style: dashed;
+        }
+
+        .milestone-badge-glow-effect {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: radial-gradient(circle at 10% 10%, var(--milestone-glow) 0%, transparent 60%);
+          opacity: 0;
+          transition: opacity var(--transition-medium);
+          pointer-events: none;
+        }
+
+        .milestone-badge-card.unlocked:hover .milestone-badge-glow-effect {
+          opacity: 0.6;
+        }
+
+        .milestone-card-inner {
+          display: flex;
+          align-items: center;
+          gap: 1rem;
+          position: relative;
+          z-index: 2;
+        }
+
+        .milestone-icon-wrapper {
+          width: 50px;
+          height: 50px;
+          border-radius: 14px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: rgba(255, 255, 255, 0.03);
+          border: 1px solid var(--border-light);
+          transition: all var(--transition-medium);
+        }
+
+        .milestone-badge-card.unlocked .milestone-icon-wrapper {
+          color: var(--milestone-color);
+          background: rgba(255, 255, 255, 0.05);
+          border-color: rgba(255, 255, 255, 0.15);
+          box-shadow: 0 0 10px var(--milestone-glow);
+        }
+
+        .milestone-badge-card.unlocked:hover .milestone-icon-wrapper {
+          transform: rotate(8deg) scale(1.1);
+        }
+
+        .milestone-lock-icon {
+          color: var(--text-muted);
+        }
+
+        .milestone-info {
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+          flex: 1;
+        }
+
+        .milestone-title {
+          font-size: 0.95rem;
+          font-weight: 800;
+          color: var(--text-primary);
+          margin: 0;
+          gap: 0.5rem;
+        }
+
+        .milestone-unlocked-tag {
+          font-size: 0.6rem;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.02em;
+          background: rgba(16, 185, 129, 0.12);
+          color: #10b981;
+          padding: 0.15rem 0.4rem;
+          border-radius: 4px;
+          border: 1px solid rgba(16, 185, 129, 0.2);
+        }
+
+        .milestone-desc {
+          font-size: 0.7rem;
+          color: var(--text-secondary);
+          margin: 0;
+          line-height: 1.35;
         }
       `}</style>
     </div>
