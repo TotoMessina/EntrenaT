@@ -22,7 +22,8 @@ import {
   calculateDecayedHistoricalRunningMetrics,
   solveVDOTTime,
   getForceVelocityProfile,
-  calculateACWRData
+  calculateACWRData,
+  timeStringToSeconds
 } from '../utils/calculators';
 
 export default function Predictors({ workouts = [], profile = {} }) {
@@ -311,15 +312,8 @@ export default function Predictors({ workouts = [], profile = {} }) {
 
     const calculateTSS = (w) => {
       const durationStr = w.duration || "00:00:00";
-      const parts = durationStr.split(':');
-      let mins = 0;
-      if (parts.length === 3) {
-        mins = (parseInt(parts[0]) || 0) * 60 + (parseInt(parts[1]) || 0) + (parseInt(parts[2]) || 0) / 60;
-      } else if (parts.length === 2) {
-        mins = (parseInt(parts[0]) || 0) + (parseInt(parts[1]) || 0) / 60;
-      } else {
-        mins = parseInt(durationStr) || 0;
-      }
+      const totalSecs = timeStringToSeconds(durationStr);
+      let mins = totalSecs / 60;
 
       if (mins <= 0) mins = 30; // fallback standard 30 min
 

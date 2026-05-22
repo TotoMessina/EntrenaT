@@ -14,6 +14,7 @@ import ReportModal from './components/ReportModal';
 import PerformanceHub from './components/PerformanceHub';
 import { useAppData } from './hooks/useAppData';
 import { calculateActiveStreak } from './utils/achievements';
+import CustomDialog from './components/CustomDialog';
 import { Award, Sun, Moon, Printer, Flame, TrendingUp } from 'lucide-react';
 
 /**
@@ -32,6 +33,7 @@ export default function App() {
     isSupabaseConnected, session, user,
     showConfetti, setShowConfetti,
     activeToast, setActiveToast,
+    dialog, setDialog, showAlert, showConfirm,
     handleLogin, handleRegister, handleLogout,
     handleConnectSupabase, handleDisconnectSupabase,
     handleSaveWorkout, handleDeleteWorkout, handleUpdateWorkout,
@@ -79,6 +81,8 @@ export default function App() {
             onDeleteWorkout={handleDeleteWorkout}
             onUpdateWorkout={handleUpdateWorkout}
             onUpdateAllWorkouts={handleUpdateAllWorkouts}
+            showAlert={showAlert}
+            showConfirm={showConfirm}
           />
         );
       case 'analytics':
@@ -102,6 +106,8 @@ export default function App() {
             onUpdatePlans={handleUpdatePlans}
             readinessLogs={readinessLogs}
             onUpdateReadinessLogs={handleUpdateReadinessLogs}
+            showAlert={showAlert}
+            showConfirm={showConfirm}
           />
         );
       case 'predictors':
@@ -126,6 +132,8 @@ export default function App() {
             user={user}
             onLogout={handleLogout}
             onOpenReport={() => setIsReportOpen(true)}
+            showAlert={showAlert}
+            showConfirm={showConfirm}
           />
         );
       default:
@@ -250,6 +258,8 @@ export default function App() {
             preset={addWorkoutPreset}
             workouts={workouts}
             shoes={shoes}
+            showAlert={showAlert}
+            showConfirm={showConfirm}
           />
         )}
 
@@ -286,6 +296,9 @@ export default function App() {
           onClose={() => setIsReportOpen(false)}
         />
       )}
+
+      {/* Global Interactive Custom Dialog Modal */}
+      <CustomDialog dialog={dialog} setDialog={setDialog} />
     </>
   );
 }

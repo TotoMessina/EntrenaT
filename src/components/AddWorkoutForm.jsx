@@ -47,7 +47,15 @@ const getRpeDescription = (rpe) => {
   return '';
 };
 
-export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workouts, shoes = [] }) {
+export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workouts, shoes = [], showAlert, showConfirm }) {
+  const triggerAlert = async (title, message) => {
+    if (showAlert) {
+      await showAlert(title, message);
+    } else {
+      alert(`${title ? title + ': ' : ''}${message}`);
+    }
+  };
+
   const [workoutType, setWorkoutType] = useState('running'); // running, gym
   
   // Common states
@@ -187,10 +195,10 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
     }
   };
 
-  const generateAutoSplits = () => {
+  const generateAutoSplits = async () => {
     const distVal = parseFloat(distance);
     if (!distVal || distVal <= 0) {
-      alert("Por favor ingresa primero la distancia total del entrenamiento.");
+      await triggerAlert("Falta Distancia", "Por favor ingresa primero la distancia total del entrenamiento.");
       return;
     }
 
@@ -1055,14 +1063,14 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
   }, [preset]);
 
   // Autofill running details from the last session in workouts list
-  const handleAutoFillLastRun = () => {
+  const handleAutoFillLastRun = async () => {
     if (!workouts || workouts.length === 0) {
-      alert("No hay entrenamientos previos en tu historial para auto-sugerir.");
+      await triggerAlert("Sin Entrenamientos", "No hay entrenamientos previos en tu historial para auto-sugerir.");
       return;
     }
     const runs = workouts.filter(w => w.type === 'running');
     if (runs.length === 0) {
-      alert("No se encontraron sesiones de running previas para auto-sugerir.");
+      await triggerAlert("Sin Corridas", "No se encontraron sesiones de running previas para auto-sugerir.");
       return;
     }
     
@@ -1085,7 +1093,7 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
         }
       }
       
-      alert(`¡Formulario autocompletado con tu última corrida (${latestRun.date})!`);
+      await triggerAlert("Éxito", `¡Formulario autocompletado con tu última corrida (${latestRun.date})!`);
     }
   };
 
@@ -1123,9 +1131,9 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
     ]);
   };
 
-  const removeExerciseRow = (index) => {
+  const removeExerciseRow = async (index) => {
     if (exercises.length === 1) {
-      alert("Debes registrar al menos un ejercicio en la sesión de gimnasio.");
+      await triggerAlert("Error de Ejercicios", "Debes registrar al menos un ejercicio en la sesión de gimnasio.");
       return;
     }
     setExercises(exercises.filter((_, idx) => idx !== index));
@@ -1155,11 +1163,11 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
     setExercises(updated);
   };
 
-  const removeSetFromExercise = (exIdx, setIdx) => {
+  const removeSetFromExercise = async (exIdx, setIdx) => {
     const updated = [...exercises];
     const currentSets = updated[exIdx].sets || [];
     if (currentSets.length === 1) {
-      alert("Cada ejercicio debe tener al menos una serie.");
+      await triggerAlert("Error de Series", "Cada ejercicio debe tener al menos una serie.");
       return;
     }
     updated[exIdx].sets = currentSets.filter((_, idx) => idx !== setIdx);
@@ -1199,13 +1207,13 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
   };
 
   // Form submit handler
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     if (workoutType === 'running') {
       // Validations
       if (!distance || Number(distance) <= 0) {
-        alert("Por favor ingresa una distancia de carrera válida en kilómetros.");
+        await triggerAlert("Validación de Distancia", "Por favor ingresa una distancia de carrera válida en kilómetros.");
         return;
       }
       
@@ -1238,13 +1246,13 @@ export default function AddWorkoutForm({ onSaveWorkout, onClose, preset, workout
     } else {
       // Gym validations
       if (!sessionName.trim()) {
-        alert("Por favor ingresa el nombre de la sesión (ej: Fuerza de Empuje).");
+        await triggerAlert("Validación de Nombre", "Por favor ingresa el nombre de la sesión (ej: Fuerza de Empuje).");
         return;
       }
 
       const emptyExercise = exercises.some(ex => !ex.name.trim());
       if (emptyExercise) {
-        alert("Por favor completa el nombre de todos los ejercicios agregados.");
+        await triggerAlert("Validación de Ejercicios", "Por favor completa el nombre de todos los ejercicios agregados.");
         return;
       }
 

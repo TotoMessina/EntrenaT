@@ -46,7 +46,7 @@ const getGymSessionSetsCount = (workout) => {
   }, 0) || 0;
 };
 
-export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout, onUpdateAllWorkouts }) {
+export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout, onUpdateAllWorkouts, showAlert, showConfirm }) {
   const [filterType, setFilterType] = useState('all'); // all, running, gym
   const [searchQuery, setSearchQuery] = useState('');
   const [filterMuscle, setFilterMuscle] = useState('all');
@@ -83,22 +83,34 @@ export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout
     });
   };
 
-  const handleBulkDelete = () => {
-    if (confirm(`¿Estás seguro de que deseas eliminar permanentemente los ${selectedWorkouts.size} entrenamientos seleccionados?`)) {
+  const handleBulkDelete = async () => {
+    const confirmed = showConfirm
+      ? await showConfirm("Eliminar Entrenamientos", `¿Estás seguro de que deseas eliminar permanentemente los ${selectedWorkouts.size} entrenamientos seleccionados?`)
+      : confirm(`¿Estás seguro de que deseas eliminar permanentemente los ${selectedWorkouts.size} entrenamientos seleccionados?`);
+      
+    if (confirmed) {
       const updated = workouts.filter(w => !selectedWorkouts.has(w.id));
       onUpdateAllWorkouts(updated);
       setSelectedWorkouts(new Set());
     }
   };
 
-  const handleBulkUpdateMuscleGroup = (newMuscle) => {
+  const handleBulkUpdateMuscleGroup = async (newMuscle) => {
     const gymSelectedCount = workouts.filter(w => selectedWorkouts.has(w.id) && w.type === 'gym').length;
     if (gymSelectedCount === 0) {
-      alert('No hay entrenamientos de fuerza (Gym) seleccionados para reasignar.');
+      if (showAlert) {
+        await showAlert("No hay Selección", "No hay entrenamientos de fuerza (Gym) seleccionados para reasignar.");
+      } else {
+        alert('No hay entrenamientos de fuerza (Gym) seleccionados para reasignar.');
+      }
       return;
     }
     
-    if (confirm(`¿Estás seguro de que deseas cambiar el grupo muscular a "${newMuscle}" para los ${gymSelectedCount} entrenamientos de fuerza seleccionados?`)) {
+    const confirmed = showConfirm
+      ? await showConfirm("Cambiar Grupo Muscular", `¿Estás seguro de que deseas cambiar el grupo muscular a "${newMuscle}" para los ${gymSelectedCount} entrenamientos de fuerza seleccionados?`)
+      : confirm(`¿Estás seguro de que deseas cambiar el grupo muscular a "${newMuscle}" para los ${gymSelectedCount} entrenamientos de fuerza seleccionados?`);
+
+    if (confirmed) {
       const updated = workouts.map(w => {
         if (selectedWorkouts.has(w.id) && w.type === 'gym') {
           return {
@@ -505,8 +517,11 @@ export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout
                       </button>
                     )}
                     <button 
-                      onClick={() => {
-                        if (confirm('¿Estás seguro de que deseas eliminar este entrenamiento?')) {
+                      onClick={async () => {
+                        const confirmed = showConfirm
+                          ? await showConfirm("Eliminar Sesión", "¿Estás seguro de que deseas eliminar este entrenamiento?")
+                          : confirm('¿Estás seguro de que deseas eliminar este entrenamiento?');
+                        if (confirmed) {
                           onDeleteWorkout(w.id);
                         }
                       }}
@@ -616,8 +631,11 @@ export default function WorkoutsLog({ workouts, onDeleteWorkout, onUpdateWorkout
                         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '-8px', marginBottom: '8px' }}>
                           <button
                             type="button"
-                            onClick={() => {
-                              if (confirm('¿Estás seguro de que deseas eliminar la ruta GPX de este entrenamiento?')) {
+                            onClick={async () => {
+                              const confirmed = showConfirm
+                                ? await showConfirm("Eliminar Ruta GPX", "¿Estás seguro de que deseas eliminar la ruta GPX de este entrenamiento?")
+                                : confirm('¿Estás seguro de que deseas eliminar la ruta GPX de este entrenamiento?');
+                              if (confirmed) {
                                 const updated = { ...w };
                                 delete updated.gpxData;
                                 if (onUpdateWorkout) onUpdateWorkout(updated);

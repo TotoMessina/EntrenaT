@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Sparkles, Trophy, Flame, Activity, Zap, TrendingUp, Clock, Info, ShieldAlert } from 'lucide-react';
-import { getRacePredictions, getRunningPaceZones } from '../utils/calculators';
+import { getRacePredictions, getRunningPaceZones, calculateVDOT, timeStringToSeconds } from '../utils/calculators';
 
 export default function VdotCalculator({ workouts = [], profile = {} }) {
   const [distance, setDistance] = useState('5'); // km
@@ -27,12 +27,10 @@ export default function VdotCalculator({ workouts = [], profile = {} }) {
       setPredictions(preds);
       setPaceZones(zones);
 
-      // Calcular VDOT de referencia
-      const totalMinutes = h * 60 + m + s / 60;
-      const v = (d * 1000) / totalMinutes; // m/min
-      const vo2 = -4.60 + 0.182258 * v + 0.000104 * v * v;
-      const pct = 0.2989558 * Math.exp(-0.1932605 * totalMinutes) + 0.1894393 * Math.exp(-0.012778 * totalMinutes) + 0.8;
-      setVdotValue(Math.round((vo2 / pct) * 10) / 10);
+      // Calcular VDOT de referencia usando el motor unificado de calculators.js (MED-02)
+      const totalSeconds = h * 3600 + m * 60 + s;
+      const vdot = calculateVDOT(d, totalSeconds);
+      setVdotValue(Math.round(vdot * 10) / 10);
     }
   }, [distance, hh, mm, ss, profile, workouts]);
 
@@ -46,10 +44,7 @@ export default function VdotCalculator({ workouts = [], profile = {} }) {
     let bestPace = Infinity;
     
     runs.forEach(w => {
-      const parts = w.duration.split(':').map(Number);
-      let secs = 0;
-      if (parts.length === 3) secs = parts[0] * 3600 + parts[1] * 60 + parts[2];
-      else if (parts.length === 2) secs = parts[0] * 60 + parts[1];
+      const secs = timeStringToSeconds(w.duration);
       
       const pace = secs / w.distance;
       if (pace < bestPace) {

@@ -15,7 +15,9 @@ export default function PerformanceHub({
   plans = [],
   onUpdatePlans,
   readinessLogs = [],
-  onUpdateReadinessLogs
+  onUpdateReadinessLogs,
+  showAlert,
+  showConfirm
 }) {
   const [activeSubTab, setActiveSubTab] = useState('planner'); // planner, shoes, readiness, vdot, intervals, prs
 
@@ -45,6 +47,8 @@ export default function PerformanceHub({
             workouts={workouts} 
             shoes={shoes} 
             onUpdateShoes={onUpdateShoes} 
+            showAlert={showAlert}
+            showConfirm={showConfirm}
           />
         );
       case 'readiness':

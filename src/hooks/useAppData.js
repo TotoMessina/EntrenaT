@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { MOCK_WORKOUTS } from '../mockData';
 import { getSupabase, initSupabase, clearSupabase } from '../utils/supabaseClient';
 import { calculateAchievements } from '../utils/achievements';
@@ -58,6 +58,21 @@ export function useAppData() {
   // ── ESTADO DE GAMIFICACIÓN ──
   const [showConfetti, setShowConfetti] = useState(false);
   const [activeToast, setActiveToast] = useState(null);
+
+  // ── ESTADO DE DIÁLOGOS INTERACTIVOS (MED-04) ──
+  const [dialog, setDialog] = useState(null);
+
+  const showAlert = useCallback((title, message) => {
+    return new Promise((resolve) => {
+      setDialog({ type: 'alert', title, message, resolve });
+    });
+  }, []);
+
+  const showConfirm = useCallback((title, message) => {
+    return new Promise((resolve) => {
+      setDialog({ type: 'confirm', title, message, resolve });
+    });
+  }, []);
 
   // ── PERSISTENCIA LOCAL REACTIVA ──
   useEffect(() => { localStorage.setItem('fitanalytics_shoes',           JSON.stringify(shoes));        }, [shoes]);
@@ -356,8 +371,8 @@ export function useAppData() {
 
   // ── INICIALIZACIÓN (HIGH-06: usa valores del closure del primer render — sin re-read) ──
   useEffect(() => {
-    const correctUrl = 'https://qxtgjxmuoxrwqboapbzd.supabase.co';
-    const correctKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF4dGdqeG11b3hyd3Fib2FwYnpkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyMTAyMjYsImV4cCI6MjA5NDc4NjIyNn0.qNHQA2qHFboQkPZTPARXAXOud4r868MYoW9TVimBxqM';
+    const correctUrl = import.meta.env.VITE_SUPABASE_URL || 'https://qxtgjxmuoxrwqboapbzd.supabase.co';
+    const correctKey = import.meta.env.VITE_SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF4dGdqeG11b3hyd3Fib2FwYnpkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyMTAyMjYsImV4cCI6MjA5NDc4NjIyNn0.qNHQA2qHFboQkPZTPARXAXOud4r868MYoW9TVimBxqM';
 
     if (!localStorage.getItem('fitanalytics_supabase_url'))
       localStorage.setItem('fitanalytics_supabase_url', correctUrl);
@@ -412,7 +427,7 @@ export function useAppData() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── AUTH HANDLERS ──
-  const handleLogin = async (email, password) => {
+  const handleLogin = useCallback(async (email, password) => {
     const client = getSupabase();
     if (!client) return { success: false, message: 'Supabase no está inicializado.' };
     try {
@@ -423,9 +438,9 @@ export function useAppData() {
       console.error('Sign-in failed:', e);
       return { success: false, message: e.message || 'Correo o contraseña incorrectos.' };
     }
-  };
+  }, []);
 
-  const handleRegister = async (email, password) => {
+  const handleRegister = useCallback(async (email, password) => {
     const client = getSupabase();
     if (!client) return { success: false, message: 'Supabase no está inicializado.' };
     try {
@@ -436,17 +451,17 @@ export function useAppData() {
       console.error('Registration failed:', e);
       return { success: false, message: e.message || 'Error al registrar usuario.' };
     }
-  };
+  }, []);
 
-  const handleLogout = async () => {
+  const handleLogout = useCallback(async () => {
     const client = getSupabase();
     if (client) { try { await client.auth.signOut(); } catch (e) { console.error('Sign-out failed:', e); } }
     setSession(null);
     setUser(null);
-  };
+  }, []);
 
   // ── HANDLERS DE CONEXIÓN ──
-  const handleConnectSupabase = async (url, key) => {
+  const handleConnectSupabase = useCallback(async (url, key) => {
     try {
       const client = initSupabase(url, key);
       if (!client) return { success: false, message: 'La inicialización del cliente de Supabase falló.' };
@@ -479,22 +494,24 @@ export function useAppData() {
       console.error('Failed to connect to Supabase database:', e);
       return { success: false, message: e.message || 'Error de red al establecer comunicación con Supabase.' };
     }
-  };
+  }, [workouts, nutritionLogs, profile, shoes, plans, readinessLogs]);
 
-  const handleDisconnectSupabase = () => {
+  const handleDisconnectSupabase = useCallback(() => {
     localStorage.removeItem('fitanalytics_supabase_url');
     localStorage.removeItem('fitanalytics_supabase_key');
     setIsSupabaseConnected(false);
     setSession(null);
     setUser(null);
     clearSupabase();
-  };
+  }, []);
 
   // ── HANDLERS CRUD ──
-  const handleSaveWorkout = async (newWorkout) => {
-    const updated = [newWorkout, ...workouts];
-    setWorkouts(updated);
-    localStorage.setItem('fitanalytics_workouts', JSON.stringify(updated));
+  const handleSaveWorkout = useCallback(async (newWorkout) => {
+    setWorkouts(prev => {
+      const updated = [newWorkout, ...prev];
+      localStorage.setItem('fitanalytics_workouts', JSON.stringify(updated));
+      return updated;
+    });
     const client = getSupabase();
     if (client && user) {
       try {
@@ -502,12 +519,14 @@ export function useAppData() {
         if (error) throw error;
       } catch (e) { console.error('Supabase insertion error. Item cached locally:', e); }
     }
-  };
+  }, [user]);
 
-  const handleDeleteWorkout = async (id) => {
-    const updated = workouts.filter(w => w.id !== id);
-    setWorkouts(updated);
-    localStorage.setItem('fitanalytics_workouts', JSON.stringify(updated));
+  const handleDeleteWorkout = useCallback(async (id) => {
+    setWorkouts(prev => {
+      const updated = prev.filter(w => w.id !== id);
+      localStorage.setItem('fitanalytics_workouts', JSON.stringify(updated));
+      return updated;
+    });
     const client = getSupabase();
     if (client && user) {
       try {
@@ -515,12 +534,14 @@ export function useAppData() {
         if (error) throw error;
       } catch (e) { console.error('Supabase deletion error:', e); }
     }
-  };
+  }, [user]);
 
-  const handleUpdateWorkout = async (updatedWorkout) => {
-    const updated = workouts.map(w => w.id === updatedWorkout.id ? updatedWorkout : w);
-    setWorkouts(updated);
-    localStorage.setItem('fitanalytics_workouts', JSON.stringify(updated));
+  const handleUpdateWorkout = useCallback(async (updatedWorkout) => {
+    setWorkouts(prev => {
+      const updated = prev.map(w => w.id === updatedWorkout.id ? updatedWorkout : w);
+      localStorage.setItem('fitanalytics_workouts', JSON.stringify(updated));
+      return updated;
+    });
     const client = getSupabase();
     if (client && user) {
       try {
@@ -528,9 +549,9 @@ export function useAppData() {
         if (error) throw error;
       } catch (e) { console.error('Supabase single update error:', e); }
     }
-  };
+  }, [user]);
 
-  const handleUpdateNutrition = async (updatedLogs) => {
+  const handleUpdateNutrition = useCallback(async (updatedLogs) => {
     setNutritionLogs(updatedLogs);
     localStorage.setItem('fitanalytics_nutrition', JSON.stringify(updatedLogs));
     const client = getSupabase();
@@ -557,9 +578,9 @@ export function useAppData() {
         }
       } catch (e) { console.error('Supabase nutrition update error:', e); }
     }
-  };
+  }, [user]);
 
-  const handleUpdateShoes = async (updatedShoes) => {
+  const handleUpdateShoes = useCallback(async (updatedShoes) => {
     setShoes(updatedShoes);
     localStorage.setItem('fitanalytics_shoes', JSON.stringify(updatedShoes));
     const client = getSupabase();
@@ -567,7 +588,6 @@ export function useAppData() {
       try {
         const updatedIds = new Set(updatedShoes.map(s => s.id));
         const deletedShoes = shoes.filter(s => !updatedIds.has(s.id));
-        // Promise.all en lugar de for..of secuencial (mejora de rendimiento)
         await Promise.all(deletedShoes.map(del => client.from('shoes').delete().eq('id', del.id)));
         if (updatedShoes.length > 0) {
           const { error } = await client.from('shoes').upsert(
@@ -579,9 +599,9 @@ export function useAppData() {
         }
       } catch (e) { console.error('Supabase shoes update error:', e); }
     }
-  };
+  }, [shoes, user]);
 
-  const handleUpdatePlans = async (updatedPlans) => {
+  const handleUpdatePlans = useCallback(async (updatedPlans) => {
     setPlans(updatedPlans);
     localStorage.setItem('fitanalytics_training_plans', JSON.stringify(updatedPlans));
     const client = getSupabase();
@@ -599,9 +619,9 @@ export function useAppData() {
         }
       } catch (e) { console.error('Supabase plans update error:', e); }
     }
-  };
+  }, [plans, user]);
 
-  const handleUpdateReadinessLogs = async (updatedReadiness) => {
+  const handleUpdateReadinessLogs = useCallback(async (updatedReadiness) => {
     setReadinessLogs(updatedReadiness);
     localStorage.setItem('fitanalytics_readiness_logs', JSON.stringify(updatedReadiness));
     const client = getSupabase();
@@ -620,9 +640,9 @@ export function useAppData() {
         }
       } catch (e) { console.error('Supabase readiness logs update error:', e); }
     }
-  };
+  }, [readinessLogs, user]);
 
-  const handleProfileChange = async (newProfile) => {
+  const handleProfileChange = useCallback(async (newProfile) => {
     setProfile(newProfile);
     localStorage.setItem('fitanalytics_profile_age',        newProfile.age.toString());
     localStorage.setItem('fitanalytics_age',                newProfile.age.toString());
@@ -641,15 +661,14 @@ export function useAppData() {
         if (error) throw error;
       } catch (e) { console.error('Supabase profile upsert error:', e); }
     }
-  };
+  }, [user]);
 
-  const handleUpdateAllWorkouts = async (allWorkouts) => {
+  const handleUpdateAllWorkouts = useCallback(async (allWorkouts) => {
     setWorkouts(allWorkouts);
     localStorage.setItem('fitanalytics_workouts', JSON.stringify(allWorkouts));
     const client = getSupabase();
     if (client && user) {
       try {
-        // Borrado seguro con .eq('user_id') — no el patrón frágil de neq('id', 'dummy') (MED-05 fix)
         const { error: delError } = await client.from('workouts').delete().eq('user_id', user.id);
         if (delError) throw delError;
         if (allWorkouts.length > 0) {
@@ -659,10 +678,14 @@ export function useAppData() {
         }
       } catch (e) { console.error('Supabase bulk update error:', e); }
     }
-  };
+  }, [user]);
 
-  const handleResetMockData = async () => {
-    if (confirm('¿Estás seguro de que deseas restablecer los datos de demostración? Esto borrará tus entrenamientos actuales.')) {
+  const handleResetMockData = useCallback(async () => {
+    const confirmed = await showConfirm(
+      'Restablecer Datos de Demostración',
+      '¿Estás seguro de que deseas restablecer los datos de demostración? Esto borrará tus entrenamientos actuales permanentemente.'
+    );
+    if (confirmed) {
       localStorage.setItem('fitanalytics_workouts', JSON.stringify(MOCK_WORKOUTS));
       setWorkouts(MOCK_WORKOUTS);
       const client = getSupabase();
@@ -673,16 +696,16 @@ export function useAppData() {
           const { error: insError } = await client.from('workouts')
             .insert(MOCK_WORKOUTS.map(w => workoutToSupabasePayload(w, user.id)));
           if (insError) throw insError;
-          alert('¡Datos de demostración cargados localmente y sincronizados en Supabase!');
+          await showAlert('¡Éxito!', '¡Datos de demostración cargados localmente y sincronizados en Supabase!');
         } catch (e) {
           console.error('Supabase mock re-seed failed:', e);
-          alert('Datos cargados localmente, pero falló la sincronización remota: ' + e.message);
+          await showAlert('Error de Sincronización', 'Datos cargados localmente, pero falló la sincronización remota: ' + e.message);
         }
       } else {
-        alert('¡Datos de demostración cargados exitosamente!');
+        await showAlert('¡Éxito!', '¡Datos de demostración cargados exitosamente!');
       }
     }
-  };
+  }, [user, showConfirm, showAlert]);
 
   // ── RETORNO PÚBLICO DEL HOOK ──
   return {
@@ -693,6 +716,8 @@ export function useAppData() {
     // Estado de gamificación
     showConfetti, setShowConfetti,
     activeToast, setActiveToast,
+    // Estado de diálogos (MED-04)
+    dialog, setDialog, showAlert, showConfirm,
     // Handlers de autenticación
     handleLogin, handleRegister, handleLogout,
     // Handlers de conexión

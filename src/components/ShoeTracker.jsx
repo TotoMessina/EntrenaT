@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { ShieldAlert, Plus, Trash2, Calendar, Zap, Info, ShieldCheck, Trash } from 'lucide-react';
 
-export default function ShoeTracker({ workouts = [], onUpdateShoes, shoes = [] }) {
+export default function ShoeTracker({ workouts = [], onUpdateShoes, shoes = [], showAlert, showConfirm }) {
   const [showAddForm, setShowAddForm] = useState(false);
   
   // Form fields state
@@ -51,10 +51,14 @@ export default function ShoeTracker({ workouts = [], onUpdateShoes, shoes = [] }
     });
   }, [shoes, workouts]);
 
-  const handleAddShoe = (e) => {
+  const handleAddShoe = async (e) => {
     e.preventDefault();
     if (!brand.trim() || !model.trim()) {
-      alert("Por favor completa la marca y el modelo.");
+      if (showAlert) {
+        await showAlert("Campos Incompletos", "Por favor completa la marca y el modelo.");
+      } else {
+        alert("Por favor completa la marca y el modelo.");
+      }
       return;
     }
 
@@ -85,8 +89,12 @@ export default function ShoeTracker({ workouts = [], onUpdateShoes, shoes = [] }
     onUpdateShoes(updated);
   };
 
-  const handleDeleteShoe = (id) => {
-    if (confirm("¿Estás seguro de que deseas eliminar este calzado? Esta acción no afectará el historial de tus carreras logradas, pero las desvinculará de las estadísticas de desgaste.")) {
+  const handleDeleteShoe = async (id) => {
+    const confirmed = showConfirm
+      ? await showConfirm("Eliminar Calzado", "¿Estás seguro de que deseas eliminar este calzado? Esta acción no afectará el historial de tus carreras logradas, pero las desvinculará de las estadísticas de desgaste.")
+      : confirm("¿Estás seguro de que deseas eliminar este calzado? Esta acción no afectará el historial de tus carreras logradas, pero las desvinculará de las estadísticas de desgaste.");
+      
+    if (confirmed) {
       const updated = shoes.filter(s => s.id !== id);
       onUpdateShoes(updated);
     }

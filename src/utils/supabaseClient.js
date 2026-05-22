@@ -2,9 +2,8 @@ import { createClient } from '@supabase/supabase-js';
 
 let supabaseInstance = null;
 
-// User provided credentials configured as standard defaults
-const DEFAULT_URL = 'https://qxtgjxmuoxrwqboapbzd.supabase.co';
-const DEFAULT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF4dGdqeG11b3hyd3Fib2FwYnpkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyMTAyMjYsImV4cCI6MjA5NDc4NjIyNn0.qNHQA2qHFboQkPZTPARXAXOud4r868MYoW9TVimBxqM';
+const DEFAULT_URL = import.meta.env.VITE_SUPABASE_URL || 'https://qxtgjxmuoxrwqboapbzd.supabase.co';
+const DEFAULT_KEY = import.meta.env.VITE_SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF4dGdqeG11b3hyd3Fib2FwYnpkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyMTAyMjYsImV4cCI6MjA5NDc4NjIyNn0.qNHQA2qHFboQkPZTPARXAXOud4r868MYoW9TVimBxqM';
 
 /**
  * Initializes the Supabase client dynamically with the provided URL and Anon Key.

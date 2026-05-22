@@ -30,7 +30,9 @@ export default function DataManager({
   onResetMockData,
   user,
   onLogout,
-  onOpenReport
+  onOpenReport,
+  showAlert,
+  showConfirm
 }) {
   const fileInputRef = useRef(null);
   const csvInputRef = useRef(null);
@@ -219,7 +221,7 @@ export default function DataManager({
     
     if (!file) return;
 
-    fileReader.onload = (event) => {
+    fileReader.onload = async (event) => {
       try {
         const parsedData = JSON.parse(event.target.result);
         
@@ -235,12 +237,24 @@ export default function DataManager({
           throw new Error("Algunos registros no cumplen con el formato requerido (ID, Tipo, Fecha).");
         }
 
-        if (confirm(`Se han detectado ${parsedData.length} entrenamientos en el respaldo. ¿Deseas sobreescribir la base de datos actual?`)) {
+        const confirmed = showConfirm
+          ? await showConfirm("Importar Respaldo JSON", `Se han detectado ${parsedData.length} entrenamientos en el respaldo. ¿Deseas sobreescribir la base de datos actual?`)
+          : confirm(`Se han detectado ${parsedData.length} entrenamientos en el respaldo. ¿Deseas sobreescribir la base de datos actual?`);
+
+        if (confirmed) {
           onUpdateAllWorkouts(parsedData);
-          alert("¡Importación exitosa! Se han restaurado tus datos correctamente.");
+          if (showAlert) {
+            await showAlert("Importación Exitosa", "¡Importación exitosa! Se han restaurado tus datos correctamente.");
+          } else {
+            alert("¡Importación exitosa! Se han restaurado tus datos correctamente.");
+          }
         }
       } catch (error) {
-        alert(`Error al importar respaldo: ${error.message}`);
+        if (showAlert) {
+          await showAlert("Error de Importación", `Error al importar respaldo: ${error.message}`);
+        } else {
+          alert(`Error al importar respaldo: ${error.message}`);
+        }
       }
     };
 
@@ -262,7 +276,7 @@ export default function DataManager({
     setIsDragging(false);
   };
 
-  const handleDrop = (e) => {
+  const handleDrop = async (e) => {
     e.preventDefault();
     setIsDragging(false);
     const file = e.dataTransfer.files[0];
@@ -270,7 +284,11 @@ export default function DataManager({
       if (file.name.toLowerCase().endsWith('.csv')) {
         processCSVFile(file);
       } else {
-        alert("Por favor, sube un archivo en formato CSV válido (.csv).");
+        if (showAlert) {
+          await showAlert("Archivo No Válido", "Por favor, sube un archivo en formato CSV válido (.csv).");
+        } else {
+          alert("Por favor, sube un archivo en formato CSV válido (.csv).");
+        }
       }
     }
   };
@@ -289,7 +307,7 @@ export default function DataManager({
   const processCSVFile = (file) => {
     if (!file) return;
     const fileReader = new FileReader();
-    fileReader.onload = (event) => {
+    fileReader.onload = async (event) => {
       try {
         const text = event.target.result;
         if (!text || text.trim() === '') {
@@ -408,16 +426,24 @@ export default function DataManager({
         setSelectedPreviewIds(new Set());
 
       } catch (err) {
-        alert(`Error al procesar el archivo CSV: ${err.message}`);
+        if (showAlert) {
+          await showAlert("Error de Archivo CSV", `Error al procesar el archivo CSV: ${err.message}`);
+        } else {
+          alert(`Error al procesar el archivo CSV: ${err.message}`);
+        }
       }
     };
     fileReader.readAsText(file, 'utf-8');
   };
 
   // --- GENERATE PREVIEW FROM MAPPING ---
-  const generatePreview = () => {
+  const generatePreview = async () => {
     if (columnMapping.date === -1 || columnMapping.type === -1 || columnMapping.date === undefined || columnMapping.type === undefined) {
-      alert("Por favor, asocia obligatoriamente las columnas de 'Fecha' y 'Tipo de Actividad'.");
+      if (showAlert) {
+        await showAlert("Asociación Obligatoria", "Por favor, asocia obligatoriamente las columnas de 'Fecha' y 'Tipo de Actividad'.");
+      } else {
+        alert("Por favor, asocia obligatoriamente las columnas de 'Fecha' y 'Tipo de Actividad'.");
+      }
       return;
     }
 
@@ -592,7 +618,11 @@ export default function DataManager({
     }
 
     if (parsedWorkouts.length === 0) {
-      alert("No se lograron parsear registros válidos. Verifica el mapeo de columnas.");
+      if (showAlert) {
+        await showAlert("Error de Parseo", "No se lograron parsear registros válidos. Verifica el mapeo de columnas.");
+      } else {
+        alert("No se lograron parsear registros válidos. Verifica el mapeo de columnas.");
+      }
       return;
     }
 
@@ -609,9 +639,13 @@ export default function DataManager({
   };
 
   // --- CONFIRM AND SAVE IMPORT ---
-  const handleConfirmImport = () => {
+  const handleConfirmImport = async () => {
     if (selectedPreviewIds.size === 0) {
-      alert("Por favor, selecciona al menos un entrenamiento para importar.");
+      if (showAlert) {
+        await showAlert("Ningún Entrenamiento Seleccionado", "Por favor, selecciona al menos un entrenamiento para importar.");
+      } else {
+        alert("Por favor, selecciona al menos un entrenamiento para importar.");
+      }
       return;
     }
 
@@ -636,7 +670,11 @@ export default function DataManager({
 
     onUpdateAllWorkouts(mergedList);
     
-    alert(`¡Carga masiva completada con éxito! Se han importado ${cleanedWorkouts.length} entrenamientos.`);
+    if (showAlert) {
+      await showAlert("Carga Masiva Exitosa", `¡Carga masiva completada con éxito! Se han importado ${cleanedWorkouts.length} entrenamientos.`);
+    } else {
+      alert(`¡Carga masiva completada con éxito! Se han importado ${cleanedWorkouts.length} entrenamientos.`);
+    }
     resetWizard();
   };
 
@@ -652,11 +690,23 @@ export default function DataManager({
   };
 
   // --- CLEAR DATABASE ---
-  const handleClearData = () => {
-    if (confirm("🚨 ATENCIÓN: Estás a punto de borrar TODOS tus entrenamientos permanentemente. Esta acción no se puede deshacer. ¿Seguro que deseas continuar?")) {
-      if (confirm("Por favor confirma una última vez para eliminar la base de datos.")) {
+  const handleClearData = async () => {
+    const confirmed = showConfirm
+      ? await showConfirm("🚨 ATENCIÓN", "Estás a punto de borrar TODOS tus entrenamientos permanentemente. Esta acción no se puede deshacer. ¿Seguro que deseas continuar?")
+      : confirm("🚨 ATENCIÓN: Estás a punto de borrar TODOS tus entrenamientos permanentemente. Esta acción no se puede deshacer. ¿Seguro que deseas continuar?");
+      
+    if (confirmed) {
+      const confirmFinal = showConfirm
+        ? await showConfirm("Confirmación Final", "Por favor confirma una última vez para eliminar la base de datos.")
+        : confirm("Por favor confirma una última vez para eliminar la base de datos.");
+        
+      if (confirmFinal) {
         onUpdateAllWorkouts([]);
-        alert("Todos los datos han sido borrados.");
+        if (showAlert) {
+          await showAlert("Datos Borrados", "Todos los datos han sido borrados.");
+        } else {
+          alert("Todos los datos han sido borrados.");
+        }
       }
     }
   };
