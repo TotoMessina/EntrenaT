@@ -986,6 +986,656 @@ export function useAppData() {
     }
   }, [user]);
 
+  // ── SISTEMA DE INTERACCIÓN SOCIAL (MINI-STRAVA) ──
+
+  const initMockSocialData = useCallback(() => {
+    if (!localStorage.getItem('fitanalytics_mock_kudos')) {
+      const initialKudos = {
+        'w-j-2': ['sofia_runner'],
+        'w-s-2': ['juan_vdot52']
+      };
+      localStorage.setItem('fitanalytics_mock_kudos', JSON.stringify(initialKudos));
+    }
+    if (!localStorage.getItem('fitanalytics_mock_comments')) {
+      const initialComments = {
+        'w-j-2': [
+          {
+            id: 'c-mock-1',
+            displayName: 'Sofía Gómez',
+            username: 'sofia_runner',
+            text: '¡Esas series de 1000m volaron! Tremendo ritmo promedio 🏃‍♀️🔥',
+            createdAt: new Date(Date.now() - 3600000 * 2).toISOString()
+          }
+        ],
+        'w-s-2': [
+          {
+            id: 'c-mock-2',
+            displayName: 'Juan Pérez',
+            username: 'juan_vdot52',
+            text: 'Excelente tempo run, Sofi. ¡Sostuviste muy bien ese pulso! 💪',
+            createdAt: new Date(Date.now() - 3600000 * 4).toISOString()
+          }
+        ]
+      };
+      localStorage.setItem('fitanalytics_mock_comments', JSON.stringify(initialComments));
+    }
+  }, []);
+
+  const fetchSocialFeed = useCallback(async () => {
+    if (!user) {
+      initMockSocialData();
+      // Entrenamientos del usuario
+      const userWorkouts = workouts.map(w => ({
+        ...w,
+        userId: 'currentUser',
+        profile: {
+          displayName: profile.displayName || 'Tú',
+          username: profile.username || 'tú'
+        }
+      }));
+
+      // Entrenamientos de amigos simulados
+      const mockFriends = [
+        { friendId: 'mock-friend-juan', profile: generateFriendProfile('mock-friend-juan') },
+        { friendId: 'mock-friend-sofia', profile: generateFriendProfile('mock-friend-sofia') }
+      ];
+
+      const friendsWorkouts = [];
+      mockFriends.forEach(friend => {
+        const workoutsList = generateFriendWorkouts(friend.friendId);
+        workoutsList.forEach(w => {
+          friendsWorkouts.push({
+            ...w,
+            userId: friend.friendId,
+            profile: friend.profile
+          });
+        });
+      });
+
+      const allWorkouts = [...userWorkouts, ...friendsWorkouts];
+      allWorkouts.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+      const storedKudos = readLocalJSON('fitanalytics_mock_kudos', {});
+      const storedComments = readLocalJSON('fitanalytics_mock_comments', {});
+
+      return allWorkouts.map(w => {
+        const kNames = storedKudos[w.id] || [];
+        const kudosList = kNames.map(name => ({
+          userId: name === (profile.username || 'invitado') ? 'currentUser' : 'friendUser',
+          username: name,
+          displayName: name === 'sofia_runner' ? 'Sofía Gómez' : name === 'juan_vdot52' ? 'Juan Pérez' : 'Atleta'
+        }));
+
+        return {
+          ...w,
+          kudos: kudosList,
+          comments: storedComments[w.id] || []
+        };
+      });
+    }
+
+    const client = getSupabase();
+    if (!client) return [];
+    try {
+      const friends = await fetchFriendsList();
+      const acceptedFriends = friends.filter(f => f.status === 'accepted');
+      const friendIds = acceptedFriends.map(f => f.friendId);
+      const allUserIds = [user.id, ...friendIds];
+
+      const { data: profiles, error: errProf } = await client
+        .from('profiles')
+        .select('user_id, display_name, username, email')
+        .in('user_id', allUserIds);
+
+      if (errProf) throw errProf;
+
+      const profilesMap = {};
+      (profiles || []).forEach(p => {
+        profilesMap[p.user_id] = {
+          displayName: p.display_name || p.email?.split('@')[0] || 'Atleta',
+          username: p.username || 'atleta',
+          email: p.email || ''
+        };
+      });
+
+      const { data: rawWorkouts, error: errWorkouts } = await client
+        .from('workouts')
+        .select('*')
+        .in('user_id', allUserIds);
+
+      if (errWorkouts) throw errWorkouts;
+
+      const workoutsList = (rawWorkouts || []).map(remote => ({
+        ...supabaseRowToWorkout(remote),
+        userId: remote.user_id
+      }));
+      workoutsList.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+      const workoutIds = workoutsList.map(w => w.id);
+      if (workoutIds.length === 0) return [];
+
+      const [kudosRes, commentsRes] = await Promise.all([
+        client.from('workout_kudos').select('*').in('workout_id', workoutIds),
+        client.from('workout_comments').select('*').in('workout_id', workoutIds)
+      ]);
+
+      if (kudosRes.error) throw kudosRes.error;
+      if (commentsRes.error) throw commentsRes.error;
+
+      const kudosMap = {};
+      (kudosRes.data || []).forEach(k => {
+        if (!kudosMap[k.workout_id]) kudosMap[k.workout_id] = [];
+        const kProf = profilesMap[k.kudo_user_id];
+        kudosMap[k.workout_id].push({
+          userId: k.kudo_user_id,
+          username: kProf?.username || 'atleta',
+          displayName: kProf?.displayName || 'Atleta'
+        });
+      });
+
+      const commentsMap = {};
+      (commentsRes.data || []).forEach(c => {
+        if (!commentsMap[c.workout_id]) commentsMap[c.workout_id] = [];
+        const cProf = profilesMap[c.comment_user_id];
+        commentsMap[c.workout_id].push({
+          id: c.id,
+          userId: c.comment_user_id,
+          displayName: cProf?.displayName || 'Atleta',
+          username: cProf?.username || 'atleta',
+          text: c.text,
+          createdAt: c.created_at
+        });
+      });
+
+      return workoutsList.map(w => ({
+        ...w,
+        profile: profilesMap[w.userId] || { displayName: 'Atleta', username: 'atleta' },
+        kudos: kudosMap[w.id] || [],
+        comments: commentsMap[w.id] || []
+      }));
+    } catch (e) {
+      console.error('Error fetching social feed:', e);
+      return [];
+    }
+  }, [user, workouts, profile, fetchFriendsList, initMockSocialData]);
+
+  const toggleKudo = useCallback(async (workoutId, workoutOwnerId) => {
+    if (!user) {
+      initMockSocialData();
+      const stored = readLocalJSON('fitanalytics_mock_kudos', {});
+      const myUsername = profile.username || 'invitado';
+      const currentList = stored[workoutId] || [];
+      let updatedList = [];
+      let isKudoed = false;
+
+      if (currentList.includes(myUsername)) {
+        updatedList = currentList.filter(u => u !== myUsername);
+        isKudoed = false;
+      } else {
+        updatedList = [...currentList, myUsername];
+        isKudoed = true;
+      }
+
+      stored[workoutId] = updatedList;
+      localStorage.setItem('fitanalytics_mock_kudos', JSON.stringify(stored));
+      return { success: true, isKudoed };
+    }
+
+    const client = getSupabase();
+    if (!client) return { success: false, message: 'Supabase no conectado' };
+    try {
+      const { data, error } = await client
+        .from('workout_kudos')
+        .select('*')
+        .eq('workout_id', workoutId)
+        .eq('kudo_user_id', user.id)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      if (data) {
+        const { error: delErr } = await client
+          .from('workout_kudos')
+          .delete()
+          .eq('workout_id', workoutId)
+          .eq('kudo_user_id', user.id);
+
+        if (delErr) throw delErr;
+        return { success: true, isKudoed: false };
+      } else {
+        const { error: insErr } = await client
+          .from('workout_kudos')
+          .insert({
+            workout_id: workoutId,
+            workout_user_id: workoutOwnerId,
+            kudo_user_id: user.id
+          });
+
+        if (insErr) throw insErr;
+        return { success: true, isKudoed: true };
+      }
+    } catch (e) {
+      console.error('Error toggling kudo:', e);
+      return { success: false, message: e.message };
+    }
+  }, [user, profile, initMockSocialData]);
+
+  const addComment = useCallback(async (workoutId, workoutOwnerId, commentText) => {
+    if (!commentText || !commentText.trim()) return { success: false, message: 'El comentario no puede estar vacío' };
+
+    if (!user) {
+      initMockSocialData();
+      const stored = readLocalJSON('fitanalytics_mock_comments', {});
+      const currentList = stored[workoutId] || [];
+      const newComment = {
+        id: `c-mock-${Date.now()}`,
+        displayName: profile.displayName || 'Invitado',
+        username: profile.username || 'invitado',
+        text: commentText.trim(),
+        createdAt: new Date().toISOString()
+      };
+      
+      stored[workoutId] = [...currentList, newComment];
+      localStorage.setItem('fitanalytics_mock_comments', JSON.stringify(stored));
+      return { success: true, comment: newComment };
+    }
+
+    const client = getSupabase();
+    if (!client) return { success: false, message: 'Supabase no conectado' };
+    try {
+      const { data, error } = await client
+        .from('workout_comments')
+        .insert({
+          workout_id: workoutId,
+          workout_user_id: workoutOwnerId,
+          comment_user_id: user.id,
+          text: commentText.trim()
+        })
+        .select('*')
+        .single();
+
+      if (error) throw error;
+
+      return {
+        success: true,
+        comment: {
+          id: data.id,
+          userId: data.comment_user_id,
+          displayName: profile.displayName || 'Tú',
+          username: profile.username || 'tú',
+          text: data.text,
+          createdAt: data.created_at
+        }
+      };
+    } catch (e) {
+      console.error('Error adding comment:', e);
+      return { success: false, message: e.message };
+    }
+  }, [user, profile, initMockSocialData]);
+
+
+  // ── SISTEMA DE INTEGRACIÓN AUTOMÁTICA CON LA API DE STRAVA ──
+
+  const saveStravaCredentials = useCallback(async (clientId, clientSecret) => {
+    if (!clientId || !clientSecret) {
+      return { success: false, message: 'Por favor, ingresa el Client ID y el Client Secret.' };
+    }
+
+    if (!user) {
+      const mockCreds = {
+        connected: false,
+        clientId: clientId.trim(),
+        clientSecret: clientSecret.trim()
+      };
+      localStorage.setItem('fitanalytics_mock_strava_creds', JSON.stringify(mockCreds));
+      return { success: true };
+    }
+
+    const client = getSupabase();
+    if (!client) return { success: false, message: 'Supabase no conectado' };
+
+    try {
+      const { error } = await client
+        .from('strava_credentials')
+        .upsert({
+          user_id: user.id,
+          client_id: clientId.trim(),
+          client_secret: clientSecret.trim()
+        });
+
+      if (error) throw error;
+      return { success: true };
+    } catch (e) {
+      console.error('Error saving Strava credentials:', e);
+      return { success: false, message: e.message };
+    }
+  }, [user]);
+
+  const getStravaConnection = useCallback(async () => {
+    if (!user) {
+      const stored = localStorage.getItem('fitanalytics_mock_strava_creds');
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          return {
+            connected: Boolean(parsed.connected),
+            athleteName: parsed.athleteName || '',
+            athleteUsername: parsed.athleteUsername || '',
+            clientId: parsed.clientId || '',
+            clientSecret: parsed.clientSecret || ''
+          };
+        } catch { }
+      }
+      return {
+        connected: false,
+        athleteName: '',
+        athleteUsername: '',
+        clientId: '249955',
+        clientSecret: 'd56aed15d5032a78779a255e1698691aca0c0c89'
+      };
+    }
+
+    const client = getSupabase();
+    if (!client) return { connected: false };
+
+    try {
+      const { data, error } = await client
+        .from('strava_credentials')
+        .select('*')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) return { connected: false };
+
+      return {
+        connected: Boolean(data.access_token),
+        athleteName: data.athlete_name || '',
+        athleteUsername: data.athlete_username || '',
+        clientId: data.client_id || '',
+        clientSecret: data.client_secret || ''
+      };
+    } catch (e) {
+      console.error('Error reading Strava connection:', e);
+      return { connected: false };
+    }
+  }, [user]);
+
+  const disconnectStrava = useCallback(async () => {
+    if (!user) {
+      localStorage.removeItem('fitanalytics_mock_strava_creds');
+      return { success: true };
+    }
+
+    const client = getSupabase();
+    if (!client) return { success: false, message: 'Supabase no conectado' };
+
+    try {
+      const { error } = await client
+        .from('strava_credentials')
+        .delete()
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+      return { success: true };
+    } catch (e) {
+      console.error('Error disconnecting Strava:', e);
+      return { success: false, message: e.message };
+    }
+  }, [user]);
+
+  const exchangeStravaCode = useCallback(async (authCode) => {
+    if (!user) {
+      const mockCreds = {
+        connected: true,
+        athleteName: 'Usuario Demostración',
+        athleteUsername: 'atleta_demo',
+        clientId: '249955',
+        clientSecret: 'd56aed15d5032a78779a255e1698691aca0c0c89',
+        expiresAt: Math.floor(Date.now() / 1000) + 21600
+      };
+      localStorage.setItem('fitanalytics_mock_strava_creds', JSON.stringify(mockCreds));
+      return { success: true, athleteName: mockCreds.athleteName, athleteUsername: mockCreds.athleteUsername };
+    }
+
+    const client = getSupabase();
+    if (!client) return { success: false, message: 'Supabase no conectado' };
+
+    try {
+      const { data: creds, error: errCreds } = await client
+        .from('strava_credentials')
+        .select('*')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (errCreds) throw errCreds;
+      if (!creds) {
+        return { success: false, message: 'Faltan credenciales de Client ID y Secret en la base de datos.' };
+      }
+
+      const exchangeResponse = await fetch('https://www.strava.com/oauth/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_id: creds.client_id,
+          client_secret: creds.client_secret,
+          code: authCode,
+          grant_type: 'authorization_code'
+        })
+      });
+
+      if (!exchangeResponse.ok) {
+        throw new Error('Error al intercambiar el código de autorización con Strava. Verifica tu Client ID y Secret.');
+      }
+
+      const tokenData = await exchangeResponse.json();
+      
+      const athleteName = `${tokenData.athlete?.firstname || ''} ${tokenData.athlete?.lastname || ''}`.trim() || 'Atleta Strava';
+      const athleteUsername = tokenData.athlete?.username || tokenData.athlete?.id?.toString() || 'atleta';
+
+      const { error: updErr } = await client
+        .from('strava_credentials')
+        .update({
+          access_token: tokenData.access_token,
+          refresh_token: tokenData.refresh_token,
+          expires_at: tokenData.expires_at,
+          athlete_name: athleteName,
+          athlete_username: athleteUsername
+        })
+        .eq('user_id', user.id);
+
+      if (updErr) throw updErr;
+
+      return { success: true, athleteName, athleteUsername };
+    } catch (e) {
+      console.error('Error exchanging Strava authorization code:', e);
+      return { success: false, message: e.message };
+    }
+  }, [user]);
+
+  const syncRecentStravaActivities = useCallback(async () => {
+    if (!user) {
+      const mockSync = [
+        {
+          id: `strava-mock-1-${Date.now()}`,
+          type: 'running',
+          date: new Date(Date.now() - 86400000).toISOString().split('T')[0],
+          distance: 10.2,
+          duration: '00:48:15',
+          heartRate: 152,
+          rpe: 7,
+          terrain: 'Asfalto',
+          notes: '🏃 Trote tempo en parque con ritmo progresivo. ¡Sincronizado de Strava con sensaciones espectaculares!'
+        },
+        {
+          id: `strava-mock-2-${Date.now()}`,
+          type: 'running',
+          date: new Date(Date.now() - 86400000 * 3).toISOString().split('T')[0],
+          distance: 5.0,
+          duration: '00:22:10',
+          heartRate: 165,
+          rpe: 8,
+          terrain: 'Pista',
+          notes: '⚡ Series de velocidad 5x800m en pista de atletismo. ¡Sincronizado de Strava cumpliendo los ritmos!'
+        },
+        {
+          id: `strava-mock-3-${Date.now()}`,
+          type: 'running',
+          date: new Date(Date.now() - 86400000 * 5).toISOString().split('T')[0],
+          distance: 15.5,
+          duration: '01:14:30',
+          heartRate: 142,
+          rpe: 6,
+          terrain: 'Tierra',
+          notes: '⛰️ Fondo largo aeróbico de fin de semana en sendero mixto. ¡Sincronizado de Strava con buena base mitocondrial!'
+        }
+      ];
+
+      let addedCount = 0;
+      const updatedWorkouts = [...workouts];
+      
+      mockSync.forEach(newW => {
+        const isDup = workouts.some(oldW => 
+          oldW.type === 'running' && 
+          oldW.date === newW.date && 
+          Math.abs(oldW.distance - newW.distance) < 0.05
+        );
+        if (!isDup) {
+          updatedWorkouts.push(newW);
+          addedCount++;
+        }
+      });
+
+      if (addedCount > 0) {
+        updatedWorkouts.sort((a, b) => new Date(b.date) - new Date(a.date));
+        setWorkouts(updatedWorkouts);
+        localStorage.setItem('fitanalytics_workouts', JSON.stringify(updatedWorkouts));
+        return { success: true, addedCount, message: `¡Sincronización exitosa! Se importaron ${addedCount} nuevas actividades de running.` };
+      }
+      return { success: true, addedCount: 0, message: 'No se encontraron nuevas actividades para importar.' };
+    }
+
+    const client = getSupabase();
+    if (!client) return { success: false, message: 'Supabase no conectado' };
+
+    try {
+      const { data: creds, error: errCreds } = await client
+        .from('strava_credentials')
+        .select('*')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (errCreds) throw errCreds;
+      if (!creds || !creds.refresh_token) {
+        return { success: false, message: 'Primero debes conectar tu cuenta de Strava' };
+      }
+
+      let accessToken = creds.access_token;
+      let expiresAt = Number(creds.expires_at) || 0;
+      const nowSeconds = Math.floor(Date.now() / 1000);
+
+      if (expiresAt === 0 || expiresAt < nowSeconds + 300) {
+        const refreshResponse = await fetch('https://www.strava.com/oauth/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            client_id: creds.client_id,
+            client_secret: creds.client_secret,
+            refresh_token: creds.refresh_token,
+            grant_type: 'refresh_token'
+          })
+        });
+
+        if (!refreshResponse.ok) {
+          throw new Error('No se pudo renovar el token de acceso con Strava.');
+        }
+
+        const refreshData = await refreshResponse.json();
+        accessToken = refreshData.access_token;
+        expiresAt = refreshData.expires_at;
+
+        const { error: updErr } = await client
+          .from('strava_credentials')
+          .update({
+            access_token: accessToken,
+            refresh_token: refreshData.refresh_token || creds.refresh_token,
+            expires_at: expiresAt
+          })
+          .eq('user_id', user.id);
+
+        if (updErr) throw updErr;
+      }
+
+      const activitiesResponse = await fetch(`https://www.strava.com/api/v3/athlete/activities?per_page=10`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+
+      if (!activitiesResponse.ok) {
+        throw new Error('Error al consultar actividades de Strava.');
+      }
+
+      const activities = await activitiesResponse.json();
+      const runs = activities.filter(a => a.type === 'Run');
+
+      let addedCount = 0;
+      const newWorkoutsList = [];
+
+      for (const run of runs) {
+        const dateStr = run.start_date.split('T')[0];
+        const distKm = Math.round((run.distance / 1000) * 100) / 100;
+        
+        const hours = Math.floor(run.moving_time / 3600);
+        const minutes = Math.floor((run.moving_time % 3600) / 60);
+        const seconds = Math.round(run.moving_time % 60);
+        const durationStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+
+        const isDup = workouts.some(oldW => 
+          oldW.type === 'running' && 
+          oldW.date === dateStr && 
+          Math.abs(oldW.distance - distKm) < 0.05
+        );
+
+        if (!isDup) {
+          const newWorkout = {
+            id: `strava-${run.id}`,
+            type: 'running',
+            date: dateStr,
+            distance: distKm,
+            duration: durationStr,
+            heartRate: run.has_heartrate ? Math.round(run.average_heartrate) : null,
+            rpe: run.suffer_score ? Math.min(10, Math.max(1, Math.round(run.suffer_score / 12))) : 6,
+            terrain: 'Asfalto',
+            notes: `${run.name}${run.description ? ' - ' + run.description : ''} (Sincronizado vía Strava Hub)`
+          };
+          newWorkoutsList.push(newWorkout);
+          addedCount++;
+        }
+      }
+
+      if (addedCount > 0) {
+        for (const w of newWorkoutsList) {
+          const payload = workoutToSupabasePayload(w, user.id);
+          const { error: insErr } = await client.from('workouts').insert(payload);
+          if (insErr) throw insErr;
+        }
+
+        const combinedList = [...workouts, ...newWorkoutsList];
+        combinedList.sort((a, b) => new Date(b.date) - new Date(a.date));
+        setWorkouts(combinedList);
+        localStorage.setItem('fitanalytics_workouts', JSON.stringify(combinedList));
+
+        return { success: true, addedCount, message: `¡Sincronización exitosa! Se importaron ${addedCount} nuevas carreras de Strava.` };
+      }
+
+      return { success: true, addedCount: 0, message: 'No se encontraron nuevas carreras de Strava para importar.' };
+    } catch (e) {
+      console.error('Error in syncRecentStravaActivities:', e);
+      return { success: false, message: e.message };
+    }
+  }, [user, workouts]);
+
+
+
   // ── RETORNO PÚBLICO DEL HOOK ──
   console.log("DEBUG [useAppData]: Hook executes. fetchFriendsList exists?", typeof fetchFriendsList === 'function', {
     fetchFriendsList: typeof fetchFriendsList,
@@ -1012,6 +1662,10 @@ export function useAppData() {
     handleUpdateReadinessLogs, handleProfileChange,
     handleUpdateAllWorkouts, handleResetMockData,
     // COMUNIDAD
-    searchUsers, sendFriendRequest, acceptFriendRequest, removeFriend, fetchFriendsList, fetchFriendData,
+    searchUsers, sendFriendRequest, acceptFriendRequest, removeFriend, fetchFriendsList, fetchFriendData, fetchSocialFeed, toggleKudo, addComment,
+    // INTEGRACIÓN STRAVA
+    saveStravaCredentials, getStravaConnection, disconnectStrava, exchangeStravaCode, syncRecentStravaActivities,
   };
 }
+
+

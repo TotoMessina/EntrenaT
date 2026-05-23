@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { 
   Download, 
   Upload, 
@@ -31,6 +31,11 @@ export default function DataManager({
   user,
   onLogout,
   onOpenReport,
+  saveStravaCredentials,
+  getStravaConnection,
+  disconnectStrava,
+  exchangeStravaCode,
+  syncRecentStravaActivities,
   showAlert,
   showConfirm
 }) {
@@ -45,6 +50,160 @@ export default function DataManager({
   const [showSql, setShowSql] = useState(false);
   const [importMode, setImportMode] = useState('merge');
   const [showTemplateInstructions, setShowTemplateInstructions] = useState(false);
+
+  // --- STRAVA STATES ---
+  const [stravaClientId, setStravaClientId] = useState('');
+  const [stravaClientSecret, setStravaClientSecret] = useState('');
+  const [stravaConn, setStravaConn] = useState({ connected: false, athleteName: '', athleteUsername: '', clientId: '', clientSecret: '' });
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [showStravaAuthSimulator, setShowStravaAuthSimulator] = useState(false);
+
+  // Cargar estado de conexión de Strava
+  const loadStravaConnection = useCallback(async () => {
+    try {
+      const conn = await getStravaConnection();
+      setStravaConn(conn);
+      if (conn.clientId) setStravaClientId(conn.clientId);
+      if (conn.clientSecret) setStravaClientSecret(conn.clientSecret);
+    } catch (e) {
+      console.error('Failed to load Strava connection details:', e);
+    }
+  }, [getStravaConnection]);
+
+  // Cargar al montar
+  useEffect(() => {
+    loadStravaConnection();
+  }, [loadStravaConnection]);
+
+  // Interceptar callback OAuth de Strava (?code=...)
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+    if (code) {
+      // Limpiar URL de forma premium
+      const newUrl = window.location.pathname;
+      window.history.replaceState({}, document.title, newUrl);
+      
+      const handleAuth = async () => {
+        setSyncLoading(true);
+        setStatusMsg({ type: 'info', text: 'Conectando con la API de Strava e intercambiando tokens...' });
+        const res = await exchangeStravaCode(code);
+        setSyncLoading(false);
+        if (res.success) {
+          if (showAlert) {
+            showAlert('Conexión Exitosa', `¡Sincronizado con Strava con éxito! Bienvenido, ${res.athleteName}.`);
+          } else {
+            alert(`¡Sincronizado con Strava con éxito! Bienvenido, ${res.athleteName}.`);
+          }
+          loadStravaConnection();
+        } else {
+          if (showAlert) {
+            showAlert('Error de Conexión', res.message || 'No se pudo intercambiar tokens con Strava.');
+          } else {
+            alert(res.message || 'No se pudo intercambiar tokens con Strava.');
+          }
+        }
+      };
+      handleAuth();
+    }
+  }, [exchangeStravaCode, loadStravaConnection, showAlert]);
+
+  const handleSaveStravaCreds = async (e) => {
+    e.preventDefault();
+    if (!stravaClientId.trim() || !stravaClientSecret.trim()) {
+      setStatusMsg({ type: 'error', text: 'Por favor, ingresa el Client ID y el Client Secret.' });
+      return;
+    }
+    setLoading(true);
+    const res = await saveStravaCredentials(stravaClientId.trim(), stravaClientSecret.trim());
+    setLoading(false);
+    if (res.success) {
+      setStatusMsg({ type: 'success', text: 'Credenciales de Strava guardadas correctamente.' });
+      loadStravaConnection();
+    } else {
+      setStatusMsg({ type: 'error', text: res.message });
+    }
+  };
+
+  const handleConnectStravaOAuth = () => {
+    if (!stravaClientId.trim() || !stravaClientSecret.trim()) {
+      setStatusMsg({ type: 'error', text: 'Primero debes rellenar e ingresar tu Client ID y Secret.' });
+      return;
+    }
+
+    // Si está en local/invitado, disparamos el simulador
+    if (!user) {
+      setShowStravaAuthSimulator(true);
+      return;
+    }
+
+    // Flujo real en producción con redirección dinámica
+    const clientId = stravaClientId.trim();
+    const redirectUri = window.location.origin; // ¡Dinámico! (localhost:5173 o entrena-t.vercel.app)
+    const scope = 'read,activity:read_all';
+    
+    window.location.href = `https://www.strava.com/oauth/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scope}&approval_prompt=force`;
+  };
+
+  const handleSimulatedAuthAccept = async () => {
+    setShowStravaAuthSimulator(false);
+    setSyncLoading(true);
+    setStatusMsg({ type: 'info', text: 'Simulando intercambio de tokens de Strava...' });
+    
+    // Simular un retraso premium
+    setTimeout(async () => {
+      const res = await exchangeStravaCode('mock-code-123456');
+      setSyncLoading(false);
+      if (res.success) {
+        if (showAlert) {
+          showAlert('Simulador Strava', '¡Conexión de simulación exitosa! Ahora estás conectado en modo de demostración.');
+        }
+        loadStravaConnection();
+      }
+    }, 1200);
+  };
+
+  const handleSyncStrava = async () => {
+    setSyncLoading(true);
+    setStatusMsg({ type: 'info', text: 'Sincronizando últimas actividades de Strava...' });
+    
+    const res = await syncRecentStravaActivities();
+    setSyncLoading(false);
+    
+    if (res.success) {
+      if (showAlert) {
+        showAlert('Sincronización Completa', res.message);
+      } else {
+        alert(res.message);
+      }
+    } else {
+      if (showAlert) {
+        showAlert('Error de Sincronización', res.message);
+      } else {
+        alert(res.message);
+      }
+    }
+  };
+
+  const handleDisconnectStravaConn = async () => {
+    const confirmed = showConfirm
+      ? await showConfirm('Desvincular Strava', '¿Estás seguro de que deseas desconectar tu cuenta de Strava de FitAnalytics?')
+      : confirm('¿Estás seguro de que deseas desconectar tu cuenta de Strava de FitAnalytics?');
+
+    if (!confirmed) return;
+
+    setSyncLoading(true);
+    const res = await disconnectStrava();
+    setSyncLoading(false);
+    if (res.success) {
+      setStatusMsg({ type: 'success', text: 'Cuenta de Strava desvinculada.' });
+      setStravaClientId('');
+      setStravaClientSecret('');
+      loadStravaConnection();
+    }
+  };
+
+
 
   // --- IMPORT WIZARD STATES ---
   const [csvFile, setCsvFile] = useState(null);
@@ -1450,6 +1609,147 @@ create policy "Usuarios pueden borrar su propia nutricion"
               </div>
             </div>
 
+            {/* Card: Strava Device Sync */}
+            <div className="glass-card admin-card large-admin-card">
+              <div className="admin-card-content" style={{ gap: '1rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: '12px' }}>
+                  <h3 className="admin-card-title flex-center" style={{ gap: '8px', color: '#fc4c02', margin: 0 }}>
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="#fc4c02">
+                      <path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.62h4.151L11.313 0 5.62 11.23h4.162z" />
+                    </svg>
+                    Sincronización con Strava (Strava Hub)
+                  </h3>
+                  <span className={`badge ${stravaConn.connected ? 'badge-running' : 'badge-invalid'}`} style={{
+                    backgroundColor: stravaConn.connected ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                    color: stravaConn.connected ? '#34d399' : '#f87171',
+                    border: stravaConn.connected ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(239, 68, 68, 0.3)',
+                    fontSize: '0.75rem',
+                    padding: '0.2rem 0.5rem',
+                    borderRadius: '6px'
+                  }}>
+                    {stravaConn.connected ? '🟢 Conectado' : '🔴 Desconectado'}
+                  </span>
+                </div>
+                
+                <p className="text-muted text-xs leading-relaxed" style={{ margin: 0 }}>
+                  Vincula tu cuenta deportiva para importar automáticamente tus actividades de running directo a la plataforma. 
+                  Compatible con Adidas Running, Garmin, Apple Watch, Wahoo y más, sincronizando directamente a través de Strava.
+                </p>
+
+                {stravaConn.connected ? (
+                  <div className="supabase-connected-status fade-in" style={{ width: '100%', marginTop: '0.5rem', background: 'rgba(252, 76, 2, 0.03)', borderColor: 'rgba(252, 76, 2, 0.15)', padding: '1rem', borderRadius: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                      <div>
+                        <p style={{ margin: 0, fontWeight: 'bold', fontSize: '0.9rem', color: '#fc4c02' }}>
+                          Atleta: {stravaConn.athleteName || 'Atleta Strava'}
+                        </p>
+                        <p className="text-muted text-xs" style={{ margin: '0.2rem 0 0 0' }}>
+                          Usuario: @{stravaConn.athleteUsername || 'atleta'}
+                        </p>
+                      </div>
+                      <div className="flex-buttons-row" style={{ gap: '0.5rem' }}>
+                        <button 
+                          className="btn btn-running flex-center" 
+                          onClick={handleSyncStrava}
+                          disabled={syncLoading}
+                          style={{ background: '#fc4c02', borderColor: '#fc4c02' }}
+                        >
+                          {syncLoading ? (
+                            <>
+                              <RotateCcw className="animate-spin" size={14} />
+                              <span>Sincronizando...</span>
+                            </>
+                          ) : (
+                            <>
+                              <RotateCcw size={14} />
+                              <span>Sincronizar Actividades</span>
+                            </>
+                          )}
+                        </button>
+                        <button 
+                          className="btn btn-secondary flex-center" 
+                          onClick={handleDisconnectStravaConn}
+                          disabled={syncLoading}
+                        >
+                          <span>Desvincular</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ width: '100%', marginTop: '0.5rem' }}>
+                    <div className="glass-card instructions-overlay mb-4" style={{ padding: '1rem', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-light)' }}>
+                      <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.85rem', color: 'var(--text-primary)' }}>🔑 Configuración en 3 pasos:</h4>
+                      <ol className="text-xs text-muted" style={{ paddingLeft: '1.2rem', margin: 0, lineHeight: '1.5' }}>
+                        <li>Ve a <a href="https://www.strava.com/settings/api" target="_blank" rel="noreferrer" style={{ color: '#fc4c02', textDecoration: 'underline' }}>strava.com/settings/api</a> e inicia sesión.</li>
+                        <li>Crea una aplicación. Configura la "Categoría" como "Sports/Tracker" y el "Authorization Callback Domain" como <code>{window.location.hostname}</code>.</li>
+                        <li>Copia el **Client ID** y el **Client Secret** provistos abajo para habilitar tu conexión segura de atleta.</li>
+                      </ol>
+                    </div>
+
+                    <form onSubmit={handleSaveStravaCreds} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                      <div className="form-row-grid" style={{ marginBottom: 0 }}>
+                        <div className="form-group">
+                          <label className="form-label text-xs">Client ID de Strava</label>
+                          <input 
+                            type="text" 
+                            placeholder="Ej: 249955"
+                            value={stravaClientId}
+                            onChange={(e) => setStravaClientId(e.target.value)}
+                            className="form-input"
+                            required
+                            disabled={loading || syncLoading}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label className="form-label text-xs">Client Secret de Strava</label>
+                          <input 
+                            type="password" 
+                            placeholder="Ej: d56aed15d5032a78779a255e1698691aca0..."
+                            value={stravaClientSecret}
+                            onChange={(e) => setStravaClientSecret(e.target.value)}
+                            className="form-input"
+                            required
+                            disabled={loading || syncLoading}
+                          />
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', flexWrap: 'wrap' }}>
+                        <button 
+                          type="button" 
+                          className="btn btn-secondary text-xs flex-center"
+                          onClick={() => {
+                            setStravaClientId('249955');
+                            setStravaClientSecret('d56aed15d5032a78779a255e1698691aca0c0c89');
+                          }}
+                          disabled={loading || syncLoading}
+                        >
+                          Cargar Credenciales
+                        </button>
+                        <button 
+                          type="submit" 
+                          className="btn btn-secondary text-xs flex-center"
+                          disabled={loading || syncLoading}
+                        >
+                          Guardar Credenciales
+                        </button>
+                        <button 
+                          type="button" 
+                          className="btn btn-running flex-center text-xs" 
+                          onClick={handleConnectStravaOAuth}
+                          disabled={loading || syncLoading || !stravaClientId || !stravaClientSecret}
+                          style={{ background: '#fc4c02', borderColor: '#fc4c02' }}
+                        >
+                          <span>🔌 Enlazar Cuenta de Strava</span>
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                )}
+              </div>
+            </div>
+
             {/* Card: Maintenance */}
             <div className="glass-card admin-card danger-card">
               <div className="admin-card-icon-wrapper danger-icon-bg">
@@ -1477,7 +1777,140 @@ create policy "Usuarios pueden borrar su propia nutricion"
         </>
       )}
 
+      {/* MOCK STRAVA OAUTH SIMULATOR MODAL OVERLAY */}
+      {showStravaAuthSimulator && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.85)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 9999,
+          animation: 'fadeIn 0.25s ease-out'
+        }}>
+          <div className="glass-card" style={{
+            width: '90%',
+            maxWidth: '480px',
+            background: 'rgba(28, 28, 30, 0.95)',
+            border: '1px solid rgba(252, 76, 2, 0.3)',
+            borderRadius: '24px',
+            padding: '2rem',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.5), 0 0 25px rgba(252, 76, 2, 0.15)',
+            textAlign: 'center'
+          }}>
+            {/* Header / Logo */}
+            <div style={{ marginBottom: '1.5rem' }}>
+              <svg viewBox="0 0 24 24" width="48" height="48" fill="#fc4c02" style={{ margin: '0 auto 0.75rem' }}>
+                <path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.62h4.151L11.313 0 5.62 11.23h4.162z" />
+              </svg>
+              <h2 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#fc4c02', margin: 0, letterSpacing: '-0.025em' }}>
+                SIMULADOR DE AUTORIZACIÓN STRAVA
+              </h2>
+              <p className="text-secondary text-2xs" style={{ marginTop: '0.2rem' }}>
+                Conexión segura local para deportistas sin base de datos
+              </p>
+            </div>
+
+            {/* Connection visualization */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              gap: '1.5rem',
+              margin: '1.75rem 0',
+              background: 'rgba(255,255,255,0.02)',
+              padding: '1.25rem',
+              borderRadius: '16px',
+              border: '1px solid var(--border-light)'
+            }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: 'rgba(139, 92, 246, 0.2)', border: '1px solid var(--color-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', fontWeight: 'bold', color: 'var(--color-primary)', margin: '0 auto 0.4rem' }}>
+                  FA
+                </div>
+                <span className="text-2xs text-muted" style={{ fontWeight: 600 }}>FitAnalytics</span>
+              </div>
+              
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <span style={{ fontSize: '1.25rem', color: '#fc4c02', animation: 'pulse 1.5s infinite' }}>⚡</span>
+                <div style={{ width: '100%', height: '2px', background: 'linear-gradient(90deg, var(--color-primary), #fc4c02)', borderRadius: '1px', marginTop: '4px' }}></div>
+              </div>
+
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: 'rgba(252, 76, 2, 0.2)', border: '1px solid #fc4c02', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.4rem' }}>
+                  <svg viewBox="0 0 24 24" width="22" height="22" fill="#fc4c02">
+                    <path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.62h4.151L11.313 0 5.62 11.23h4.162z" />
+                  </svg>
+                </div>
+                <span className="text-2xs text-muted" style={{ fontWeight: 600 }}>Strava API</span>
+              </div>
+            </div>
+
+            {/* Scope Permissions Checklist */}
+            <div style={{ textAlign: 'left', background: 'rgba(0,0,0,0.2)', padding: '1.25rem', borderRadius: '16px', border: '1px solid var(--border-light)', marginBottom: '1.75rem' }}>
+              <p className="text-xs text-primary" style={{ margin: '0 0 0.75rem 0', fontWeight: 'bold' }}>
+                FitAnalytics solicita los siguientes permisos:
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', cursor: 'pointer', margin: 0 }}>
+                  <input type="checkbox" defaultChecked disabled style={{ accentColor: '#fc4c02', marginTop: '2px' }} />
+                  <span className="text-xs text-secondary leading-normal">
+                    <strong>Ver perfil y datos de atleta:</strong> Necesario para obtener tu nombre y asociar tus carreras correctamente.
+                  </span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', cursor: 'pointer', margin: 0 }}>
+                  <input type="checkbox" defaultChecked disabled style={{ accentColor: '#fc4c02', marginTop: '2px' }} />
+                  <span className="text-xs text-secondary leading-normal">
+                    <strong>Leer datos de actividad:</strong> Requerido para consultar, descargar y mapear tus entrenamientos de running recientes.
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <button 
+                type="button" 
+                className="btn btn-secondary flex-center" 
+                onClick={() => setShowStravaAuthSimulator(false)}
+                style={{ flex: 1 }}
+              >
+                Cancelar
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-running flex-center" 
+                onClick={handleSimulatedAuthAccept}
+                style={{ flex: 1.5, background: '#fc4c02', borderColor: '#fc4c02' }}
+              >
+                <span>Autorizar Aplicación</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`
+        /* Spin & Pulse Animations for Strava components */
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        .animate-spin {
+          animation: spin 1s linear infinite;
+        }
+        @keyframes pulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.6; transform: scale(1.15); }
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
         .data-container {
           display: flex;
           flex-direction: column;

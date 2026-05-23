@@ -15,7 +15,9 @@ import {
   Calendar, 
   Dumbbell, 
   Sparkles,
-  Info
+  Info,
+  MessageSquare,
+  Send
 } from 'lucide-react';
 import { calculateVDOT, getRacePredictions, timeStringToSeconds } from '../utils/calculators';
 
@@ -27,6 +29,10 @@ export default function SocialHub({
   removeFriend,
   fetchFriendsList,
   fetchFriendData,
+  fetchSocialFeed,
+  toggleKudo,
+  addComment,
+  profile,
   showAlert,
   showConfirm
 }) {
@@ -40,6 +46,93 @@ export default function SocialHub({
   const [selectedFriend, setSelectedFriend] = useState(null);
   const [friendDetails, setFriendDetails] = useState(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+
+  // Estados del Muro de Actividad
+  const [activeSubTab, setActiveSubTab] = useState('feed');
+  const [feedItems, setFeedItems] = useState([]);
+  const [isLoadingFeed, setIsLoadingFeed] = useState(true);
+  const [expandedComments, setExpandedComments] = useState({});
+  const [commentInputs, setCommentInputs] = useState({});
+
+  // Cargar Muro de Actividad
+  const loadSocialFeed = useCallback(async () => {
+    setIsLoadingFeed(true);
+    try {
+      const feed = await fetchSocialFeed();
+      setFeedItems(feed || []);
+    } catch (e) {
+      console.error('Error loading social feed:', e);
+    } finally {
+      setIsLoadingFeed(false);
+    }
+  }, [fetchSocialFeed]);
+
+  useEffect(() => {
+    if (activeSubTab === 'feed') {
+      loadSocialFeed();
+    }
+  }, [activeSubTab, loadSocialFeed]);
+
+  // Alternar Kudo (Like) reactivamente
+  const handleToggleKudo = async (workout) => {
+    try {
+      const res = await toggleKudo(workout.id, workout.userId);
+      if (res?.success) {
+        setFeedItems(prev => prev.map(item => {
+          if (item.id === workout.id) {
+            const myUsername = profile?.username || 'invitado';
+            const alreadyKudoed = item.kudos.some(k => k.username === myUsername);
+            let updatedKudos = [];
+            if (alreadyKudoed) {
+              updatedKudos = item.kudos.filter(k => k.username !== myUsername);
+            } else {
+              updatedKudos = [...item.kudos, {
+                userId: user?.id || 'currentUser',
+                username: myUsername,
+                displayName: profile?.displayName || 'Tú'
+              }];
+            }
+            return { ...item, kudos: updatedKudos };
+          }
+          return item;
+        }));
+      }
+    } catch (e) {
+      console.error('Error toggling kudo:', e);
+    }
+  };
+
+  // Enviar comentario reactivamente
+  const handlePostComment = async (workoutId, workoutOwnerId) => {
+    const text = commentInputs[workoutId];
+    if (!text || !text.trim()) return;
+
+    try {
+      const res = await addComment(workoutId, workoutOwnerId, text);
+      if (res?.success && res.comment) {
+        setFeedItems(prev => prev.map(item => {
+          if (item.id === workoutId) {
+            return {
+              ...item,
+              comments: [...item.comments, res.comment]
+            };
+          }
+          return item;
+        }));
+        setCommentInputs(prev => ({ ...prev, [workoutId]: '' }));
+      }
+    } catch (e) {
+      console.error('Error posting comment:', e);
+    }
+  };
+
+  // Alternar expandir comentarios
+  const toggleCommentsExpanded = (workoutId) => {
+    setExpandedComments(prev => ({
+      ...prev,
+      [workoutId]: !prev[workoutId]
+    }));
+  };
 
   // Cargar lista de amigos
   const loadFriends = useCallback(async () => {
@@ -225,11 +318,392 @@ export default function SocialHub({
         </p>
       </div>
 
-      <div className="grid-2col-layout" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.5rem' }}>
+      {/* Navegador de Sub-pestañas Premium */}
+      <div className="social-subtabs-nav" style={{ 
+        display: 'flex', 
+        gap: '0.4rem', 
+        marginBottom: '1.5rem', 
+        background: 'rgba(255, 255, 255, 0.02)', 
+        border: '1px solid rgba(255, 255, 255, 0.05)', 
+        padding: '0.35rem', 
+        borderRadius: '12px',
+        width: 'max-content',
+        maxWidth: '100%',
+        overflowX: 'auto'
+      }}>
+        <button
+          onClick={() => setActiveSubTab('feed')}
+          className={`subtab-btn ${activeSubTab === 'feed' ? 'active' : ''}`}
+          style={{ 
+            padding: '0.45rem 1rem', 
+            fontSize: '0.8rem', 
+            fontWeight: '600', 
+            borderRadius: '9px', 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '6px',
+            background: activeSubTab === 'feed' ? 'var(--color-primary)' : 'transparent',
+            color: activeSubTab === 'feed' ? '#fff' : 'var(--text-muted)',
+            border: 'none',
+            cursor: 'pointer',
+            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+          }}
+        >
+          <Activity size={14} />
+          <span>Muro de Actividades</span>
+        </button>
         
-        {/* Columna Búsqueda y Solicitudes */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-          
+        <button
+          onClick={() => setActiveSubTab('search')}
+          className={`subtab-btn ${activeSubTab === 'search' ? 'active' : ''}`}
+          style={{ 
+            padding: '0.45rem 1rem', 
+            fontSize: '0.8rem', 
+            fontWeight: '600', 
+            borderRadius: '9px', 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '6px',
+            background: activeSubTab === 'search' ? 'var(--color-primary)' : 'transparent',
+            color: activeSubTab === 'search' ? '#fff' : 'var(--text-muted)',
+            border: 'none',
+            cursor: 'pointer',
+            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+          }}
+        >
+          <Search size={14} />
+          <span>Buscar Atletas</span>
+        </button>
+
+        <button
+          onClick={() => setActiveSubTab('friends')}
+          className={`subtab-btn ${activeSubTab === 'friends' ? 'active' : ''}`}
+          style={{ 
+            padding: '0.45rem 1rem', 
+            fontSize: '0.8rem', 
+            fontWeight: '600', 
+            borderRadius: '9px', 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '6px',
+            background: activeSubTab === 'friends' ? 'var(--color-primary)' : 'transparent',
+            color: activeSubTab === 'friends' ? '#fff' : 'var(--text-muted)',
+            border: 'none',
+            cursor: 'pointer',
+            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+          }}
+        >
+          <Users size={14} />
+          <span>Mis Amigos ({activeFriends.length})</span>
+        </button>
+      </div>
+
+      {/* RENDER CONDICIONAL DE SECCIONES SOCIALES */}
+
+      {/* PESTAÑA 1: MURO DE ACTIVIDAD (FEED) */}
+      {activeSubTab === 'feed' && (
+        <div className="feed-container animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', maxWidth: '680px', margin: '0 auto' }}>
+          {isLoadingFeed ? (
+            <div className="glass-card" style={{ padding: '4rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+              <div className="search-pulse" style={{ width: '32px', height: '32px', borderRadius: '50%', border: '2px solid var(--color-primary)', borderTopColor: 'transparent', animation: 'spin 0.8s linear infinite', margin: '0 auto 1rem' }} />
+              <h4 style={{ margin: 0, color: '#fff' }}>Sincronizando feed de comunidad...</h4>
+              <p style={{ fontSize: '0.8rem', marginTop: '0.25rem', margin: 0 }}>Trayendo últimos kilómetros y series de fuerza...</p>
+            </div>
+          ) : feedItems.length > 0 ? (
+            feedItems.map(item => {
+              const isRun = item.type?.toLowerCase() === 'running';
+              const myUsername = profile?.username || 'invitado';
+              const hasLiked = item.kudos.some(k => k.username === myUsername);
+              const hasComments = item.comments && item.comments.length > 0;
+              const isExpanded = expandedComments[item.id];
+              
+              return (
+                <div 
+                  key={item.id} 
+                  className="glass-card social-activity-card" 
+                  style={{ 
+                    padding: '1.25rem', 
+                    borderRadius: '16px', 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    gap: '1rem', 
+                    border: '1px solid rgba(255,255,255,0.06)' 
+                  }}
+                >
+                  {/* Cabecera Tarjeta */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', minWidth: 0 }}>
+                      <div style={{ 
+                        width: '38px', 
+                        height: '38px', 
+                        borderRadius: '50%', 
+                        background: item.userId === 'currentUser' ? 'linear-gradient(135deg, var(--color-primary), #6d28d9)' : 'linear-gradient(135deg, #10b981, #059669)', 
+                        color: '#fff', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center', 
+                        fontWeight: '700', 
+                        fontSize: '0.85rem', 
+                        flexShrink: 0 
+                      }}>
+                        {getInitials(item.profile?.displayName)}
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <span style={{ display: 'block', fontSize: '0.88rem', fontWeight: '700', color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {item.profile?.displayName || 'Atleta'} 
+                          {item.userId === 'currentUser' && (
+                            <span style={{ fontSize: '0.65rem', color: 'var(--color-primary)', background: 'rgba(139,92,246,0.12)', padding: '2px 6px', borderRadius: '6px', marginLeft: '6px', border: '1px solid rgba(139,92,246,0.2)' }}>Tú</span>
+                          )}
+                        </span>
+                        <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                          @{item.profile?.username || 'atleta'}
+                        </span>
+                      </div>
+                    </div>
+                    
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Calendar size={12} />
+                      {item.date}
+                    </div>
+                  </div>
+
+                  {/* Disciplina y Título */}
+                  <div style={{ borderLeft: `3px solid ${isRun ? 'var(--color-running)' : 'var(--color-primary)'}`, paddingLeft: '0.75rem' }}>
+                    <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '700', color: '#fff' }}>
+                      {isRun ? 'Sesión de Running 👟' : item.sessionName || 'Entrenamiento de Fuerza 🏋️'}
+                    </h4>
+                    {item.notes && (
+                      <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.78rem', color: 'var(--text-muted)', fontStyle: 'italic', lineHeight: '1.4' }}>
+                        "{item.notes}"
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Telemetría y Stats */}
+                  {isRun ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: '0.65rem', background: 'rgba(0,0,0,0.15)', padding: '0.75rem 1rem', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.02)' }}>
+                      <div>
+                        <span style={{ display: 'block', fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Distancia</span>
+                        <strong style={{ fontSize: '0.95rem', color: 'var(--color-running)' }}>{item.distance} <span style={{ fontSize: '0.72rem', fontWeight: 'normal' }}>km</span></strong>
+                      </div>
+                      <div>
+                        <span style={{ display: 'block', fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Tiempo</span>
+                        <strong style={{ fontSize: '0.95rem', color: '#fff' }}>{item.duration || '--:--'}</strong>
+                      </div>
+                      {item.distance > 0 && item.duration && (
+                        <div>
+                          <span style={{ display: 'block', fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Ritmo Medio</span>
+                          <strong style={{ fontSize: '0.95rem', color: '#fff' }}>
+                            {(() => {
+                              const s = timeStringToSeconds(item.duration);
+                              const paceSecs = s / item.distance;
+                              const mins = Math.floor(paceSecs / 60);
+                              const secs = Math.round(paceSecs % 60);
+                              return `${mins}:${String(secs).padStart(2, '0')} /km`;
+                            })()}
+                          </strong>
+                        </div>
+                      )}
+                      {item.heartRate > 0 && (
+                        <div>
+                          <span style={{ display: 'block', fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Frec. Cardíaca</span>
+                          <strong style={{ fontSize: '0.95rem', color: '#f43f5e', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                            <Heart size={11} fill="#f43f5e" /> 
+                            {item.heartRate} 
+                            <span style={{ fontSize: '0.7rem', fontWeight: 'normal', color: 'var(--text-muted)' }}>ppm</span>
+                          </strong>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    item.exercises && item.exercises.length > 0 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', background: 'rgba(0,0,0,0.15)', padding: '0.75rem 1rem', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.02)' }}>
+                        <span style={{ display: 'block', fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '0.2rem' }}>Ejercicios Realizados ({item.exercises.length})</span>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                          {item.exercises.map((ex, idx) => (
+                            <span key={idx} style={{ fontSize: '0.7rem', background: 'rgba(255,255,255,0.03)', padding: '3px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)', color: '#fff', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <strong>{ex.name}</strong> • {ex.sets}x{ex.reps} {ex.weight ? <span style={{ color: 'var(--color-primary)' }}>({ex.weight}kg)</span> : ''}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  )}
+
+                  {/* Acciones del Feed */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '0.75rem', marginTop: '0.25rem' }}>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      {/* Botón Kudos */}
+                      <button
+                        onClick={() => handleToggleKudo(item)}
+                        className={`social-action-btn ${hasLiked ? 'liked' : ''}`}
+                        style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: '6px', 
+                          background: hasLiked ? 'rgba(239, 68, 68, 0.08)' : 'transparent', 
+                          border: 'none', 
+                          cursor: 'pointer', 
+                          fontSize: '0.78rem', 
+                          fontWeight: '600', 
+                          color: hasLiked ? '#f87171' : 'var(--text-muted)', 
+                          padding: '6px 10px', 
+                          borderRadius: '8px', 
+                          transition: 'all 0.2s ease-in-out' 
+                        }}
+                      >
+                        <Flame 
+                          size={15} 
+                          fill={hasLiked ? '#f87171' : 'none'} 
+                          style={{ 
+                            transform: hasLiked ? 'scale(1.15)' : 'none', 
+                            filter: hasLiked ? 'drop-shadow(0 0 3px rgba(239, 68, 68, 0.5))' : 'none', 
+                            transition: 'all 0.2s ease' 
+                          }} 
+                        />
+                        <span>{item.kudos.length} {item.kudos.length === 1 ? 'Kudo' : 'Kudos'}</span>
+                      </button>
+
+                      {/* Botón Comentar */}
+                      <button
+                        onClick={() => toggleCommentsExpanded(item.id)}
+                        className="social-action-btn"
+                        style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: '6px', 
+                          background: isExpanded ? 'rgba(255,255,255,0.04)' : 'transparent', 
+                          border: 'none', 
+                          cursor: 'pointer', 
+                          fontSize: '0.78rem', 
+                          fontWeight: '600', 
+                          color: 'var(--text-muted)', 
+                          padding: '6px 10px', 
+                          borderRadius: '8px', 
+                          transition: 'all 0.2s' 
+                        }}
+                      >
+                        <MessageSquare size={15} fill={hasComments ? 'rgba(255,255,255,0.05)' : 'none'} />
+                        <span>{item.comments.length} {item.comments.length === 1 ? 'Comentario' : 'Comentarios'}</span>
+                      </button>
+                    </div>
+
+                    {/* Resumen de Kudos */}
+                    {item.kudos.length > 0 && (
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: '240px' }}>
+                        A {item.kudos.slice(0, 2).map(k => k.username === myUsername ? 'ti' : k.displayName).join(', ')}
+                        {item.kudos.length > 2 ? ` y ${item.kudos.length - 2} más` : ''} les gusta esto.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Panel de Comentarios Expandido */}
+                  {isExpanded && (
+                    <div 
+                      className="comments-expansion-panel animate-fade-in" 
+                      style={{ 
+                        borderTop: '1px solid rgba(255,255,255,0.04)', 
+                        paddingTop: '0.85rem', 
+                        display: 'flex', 
+                        flexDirection: 'column', 
+                        gap: '0.75rem', 
+                        background: 'rgba(0,0,0,0.12)', 
+                        margin: '0 -1.25rem -1.25rem -1.25rem', 
+                        padding: '1rem 1.25rem', 
+                        borderBottomLeftRadius: '16px', 
+                        borderBottomRightRadius: '16px' 
+                      }}
+                    >
+                      {/* Listado de comentarios */}
+                      {item.comments.length > 0 ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '180px', overflowY: 'auto', paddingRight: '4px' }}>
+                          {item.comments.map(c => (
+                            <div key={c.id} style={{ display: 'flex', gap: '0.65rem', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.02)', padding: '0.45rem 0.65rem', borderRadius: '10px' }}>
+                              <div style={{ 
+                                width: '26px', 
+                                height: '26px', 
+                                borderRadius: '50%', 
+                                background: 'linear-gradient(135deg, #4b5563, #374151)', 
+                                color: '#fff', 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                justifyContent: 'center', 
+                                fontWeight: 'bold', 
+                                fontSize: '0.7rem', 
+                                flexShrink: 0 
+                              }}>
+                                {getInitials(c.displayName)}
+                              </div>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
+                                  <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#fff' }}>{c.displayName}</span>
+                                  <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>
+                                    {new Date(c.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' })} a las {new Date(c.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                </div>
+                                <p style={{ margin: '0.15rem 0 0 0', fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: '1.3' }}>{c.text}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div style={{ textAlign: 'center', padding: '0.5rem', color: 'var(--text-muted)', fontSize: '0.72rem' }}>
+                          Aún no hay comentarios. ¡Sé el primero en felicitar a este atleta!
+                        </div>
+                      )}
+
+                      {/* Formulario Inline de Comentario */}
+                      <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem', position: 'relative' }}>
+                        <input
+                          type="text"
+                          value={commentInputs[item.id] || ''}
+                          onChange={(e) => setCommentInputs(prev => ({ ...prev, [item.id]: e.target.value }))}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handlePostComment(item.id, item.userId);
+                          }}
+                          placeholder="Felicita a este atleta por su sesión..."
+                          className="premium-input"
+                          style={{ width: '100%', fontSize: '0.78rem', paddingRight: '2.5rem', height: '34px', borderRadius: '10px' }}
+                        />
+                        <button
+                          onClick={() => handlePostComment(item.id, item.userId)}
+                          disabled={!commentInputs[item.id] || !commentInputs[item.id].trim()}
+                          className="theme-switcher-btn flex-center"
+                          style={{ 
+                            position: 'absolute', 
+                            right: '3px', 
+                            top: '3px', 
+                            width: '28px', 
+                            height: '28px', 
+                            borderRadius: '8px', 
+                            color: 'var(--color-primary)', 
+                            border: 'none', 
+                            background: 'transparent', 
+                            cursor: 'pointer', 
+                            opacity: (commentInputs[item.id] && commentInputs[item.id].trim()) ? 1 : 0.35 
+                          }}
+                        >
+                          <Send size={12} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          ) : (
+            <div className="glass-card" style={{ padding: '4rem 1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+              <Users size={32} style={{ color: 'var(--text-muted)', marginBottom: '0.75rem', opacity: 0.4 }} />
+              <h4 style={{ margin: 0, color: '#fff' }}>Muro sin actividad</h4>
+              <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.78rem' }}>Agrega amigos de tu comunidad o registra tus entrenamientos para poblar el feed social.</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* PESTAÑA 2: BUSCADOR DE ATLETAS Y SOLICITUDES */}
+      {activeSubTab === 'search' && (
+        <div className="search-tab-container animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', maxWidth: '600px', margin: '0 auto' }}>
           {/* Buscador */}
           <div className="glass-card" style={{ padding: '1.25rem' }}>
             <h3 className="card-title" style={{ fontSize: '1rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -260,7 +734,6 @@ export default function SocialHub({
                 ) : searchResults.length > 0 ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                     {searchResults.map((athlete) => {
-                      // Comprobar estado de relación actual
                       const relation = friendsList.find(f => f.friendId === athlete.user_id);
                       const isFriend = relation?.status === 'accepted';
                       const isPendingSent = relation?.status === 'pending' && relation.isSender;
@@ -398,9 +871,11 @@ export default function SocialHub({
             </div>
           )}
         </div>
+      )}
 
-        {/* Columna Amigos Activos */}
-        <div className="glass-card" style={{ padding: '1.25rem' }}>
+      {/* PESTAÑA 3: MIS AMIGOS */}
+      {activeSubTab === 'friends' && (
+        <div className="glass-card animate-fade-in" style={{ padding: '1.25rem' }}>
           <h3 className="card-title" style={{ fontSize: '1rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Users size={18} style={{ color: 'var(--color-primary)' }} />
             Mis Amigos ({activeFriends.length})
@@ -412,7 +887,7 @@ export default function SocialHub({
               Cargando red de amigos...
             </div>
           ) : activeFriends.length > 0 ? (
-            <div className="friends-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 260px), 1fr))', gap: '1rem' }}>
+            <div className="friends-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 250px), 1fr))', gap: '1rem' }}>
               {activeFriends.map((friend) => (
                 <div 
                   key={friend.friendId}
@@ -431,11 +906,10 @@ export default function SocialHub({
                     overflow: 'hidden'
                   }}
                 >
-                  {/* Neon border hover in CSS style */}
                   <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginBottom: '1rem' }}>
                     <div style={{ 
-                      width: '42px', 
-                      height: '42px', 
+                      width: '40px', 
+                      height: '40px', 
                       borderRadius: '50%', 
                       background: 'linear-gradient(135deg, var(--color-primary) 0%, #4f46e5 100%)', 
                       color: '#fff', 
@@ -443,32 +917,32 @@ export default function SocialHub({
                       alignItems: 'center', 
                       justifyContent: 'center', 
                       fontWeight: '700', 
-                      fontSize: '1rem',
+                      fontSize: '0.9rem',
                       boxShadow: '0 0 10px rgba(139, 92, 246, 0.15)',
                       flexShrink: 0 
                     }}>
                       {getInitials(friend.profile.displayName)}
                     </div>
                     <div style={{ minWidth: 0 }}>
-                      <span style={{ display: 'block', fontSize: '0.9rem', fontWeight: '700', color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <span style={{ display: 'block', fontSize: '0.88rem', fontWeight: '700', color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {friend.profile.displayName}
                       </span>
-                      <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                      <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
                         @{friend.profile.username}
                       </span>
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', justifyContent: 'space-between', background: 'rgba(0,0,0,0.15)', padding: '0.6rem 0.85rem', borderRadius: '10px', fontSize: '0.78rem', gap: '0.5rem', marginTop: 'auto' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', background: 'rgba(0,0,0,0.15)', padding: '0.6rem 0.85rem', borderRadius: '10px', fontSize: '0.75rem', gap: '0.5rem', marginTop: 'auto' }}>
                     <div>
-                      <span style={{ display: 'block', fontSize: '0.62rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Km Semanales</span>
-                      <strong style={{ color: 'var(--color-running)', fontSize: '0.85rem' }}>
+                      <span style={{ display: 'block', fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Km Semanales</span>
+                      <strong style={{ color: 'var(--color-running)', fontSize: '0.82rem' }}>
                         {friend.friendId === 'mock-friend-juan' ? '45.1' : friend.friendId === 'mock-friend-sofia' ? '35.0' : '--.-'}
                       </strong>
                     </div>
                     <div style={{ textAlign: 'right' }}>
-                      <span style={{ display: 'block', fontSize: '0.62rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>VDOT Máx</span>
-                      <strong style={{ color: 'var(--color-primary)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '2px' }}>
+                      <span style={{ display: 'block', fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>VDOT Máx</span>
+                      <strong style={{ color: 'var(--color-primary)', fontSize: '0.82rem', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '2px' }}>
                         <Zap size={10} />
                         {friend.friendId === 'mock-friend-juan' ? '52.0' : friend.friendId === 'mock-friend-sofia' ? '48.2' : '--.-'}
                       </strong>
@@ -476,7 +950,7 @@ export default function SocialHub({
                   </div>
 
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.85rem', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                    <span>Ver ficha atlética</span>
+                    <span>Ver ficha deportiva</span>
                     <span style={{ color: 'var(--color-primary)', fontWeight: 'bold' }}>→</span>
                   </div>
                 </div>
@@ -486,11 +960,11 @@ export default function SocialHub({
             <div style={{ textAlign: 'center', padding: '4rem 1rem', color: 'var(--text-muted)', fontSize: '0.88rem' }}>
               <Users size={32} style={{ color: 'var(--text-muted)', marginBottom: '0.75rem', opacity: 0.5 }} />
               <p style={{ margin: 0 }}>Aún no has agregado a ningún amigo en tu red.</p>
-              <p style={{ margin: '0.35rem 0 0', fontSize: '0.75rem' }}>Utiliza el buscador de arriba para encontrar y agregar atletas.</p>
+              <p style={{ margin: '0.35rem 0 0', fontSize: '0.75rem' }}>Utiliza la sub-pestaña "Buscar Atletas" para agregar atletas.</p>
             </div>
           )}
         </div>
-      </div>
+      )}
 
       {/* MODAL DETALLES DEL ATLETA (FICHA DE AMIGO) */}
       {selectedFriend && (
@@ -817,6 +1291,37 @@ export default function SocialHub({
         }
         .workouts-recent-scroll::-webkit-scrollbar-thumb:hover {
           background: rgba(139, 92, 246, 0.3);
+        }
+
+        /* ESTILOS PREMIUM PARA EL MURO SOCIAL */
+        .social-activity-card {
+          transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .social-activity-card:hover {
+          border-color: rgba(255, 255, 255, 0.12) !important;
+          transform: translateY(-2px);
+          box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3) !important;
+        }
+        .subtab-btn {
+          font-family: inherit;
+        }
+        .subtab-btn:hover {
+          background: rgba(255, 255, 255, 0.05) !important;
+          color: #fff !important;
+        }
+        .social-action-btn:hover {
+          background: rgba(255, 255, 255, 0.04) !important;
+          color: #fff !important;
+        }
+        .social-action-btn.liked {
+          color: #f87171 !important;
+        }
+        .social-action-btn.liked:hover {
+          background: rgba(239, 68, 68, 0.12) !important;
+          color: #f87171 !important;
+        }
+        .comments-expansion-panel input::placeholder {
+          color: rgba(255, 255, 255, 0.35);
         }
       `}</style>
     </div>

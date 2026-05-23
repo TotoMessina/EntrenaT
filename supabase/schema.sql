@@ -322,3 +322,134 @@ CREATE POLICY "Amigos pueden ver readiness de su amigo" ON readiness_logs
         )
     )
   );
+
+-- ==========================================
+-- 7. TABLAS DE INTERACCIÓN SOCIAL (KUDOS Y COMENTARIOS)
+-- ==========================================
+
+-- A. Tabla de Kudos (Likes de entrenamientos)
+CREATE TABLE IF NOT EXISTS workout_kudos (
+  workout_id TEXT NOT NULL,
+  workout_user_id UUID REFERENCES profiles(user_id) ON DELETE CASCADE NOT NULL,
+  kudo_user_id UUID REFERENCES profiles(user_id) ON DELETE CASCADE DEFAULT auth.uid() NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  PRIMARY KEY (workout_id, workout_user_id, kudo_user_id)
+);
+
+-- Habilitar RLS en Kudos
+ALTER TABLE workout_kudos ENABLE ROW LEVEL SECURITY;
+
+-- Políticas de RLS para Kudos
+DROP POLICY IF EXISTS "Amigos pueden ver kudos" ON workout_kudos;
+CREATE POLICY "Amigos pueden ver kudos" ON workout_kudos
+  FOR SELECT USING (
+    auth.uid() = workout_user_id OR 
+    auth.uid() = kudo_user_id OR
+    EXISTS (
+      SELECT 1 FROM friendships 
+      WHERE friendships.status = 'accepted' 
+        AND (
+          (friendships.user_id = workout_user_id AND friendships.friend_id = auth.uid()) OR
+          (friendships.user_id = auth.uid() AND friendships.friend_id = workout_user_id)
+        )
+    )
+  );
+
+DROP POLICY IF EXISTS "Usuarios pueden dar kudos a amigos" ON workout_kudos;
+CREATE POLICY "Usuarios pueden dar kudos a amigos" ON workout_kudos
+  FOR INSERT WITH CHECK (
+    auth.uid() = kudo_user_id AND (
+      auth.uid() = workout_user_id OR
+      EXISTS (
+        SELECT 1 FROM friendships 
+        WHERE friendships.status = 'accepted' 
+          AND (
+            (friendships.user_id = workout_user_id AND friendships.friend_id = auth.uid()) OR
+            (friendships.user_id = auth.uid() AND friendships.friend_id = workout_user_id)
+          )
+      )
+    )
+  );
+
+DROP POLICY IF EXISTS "Usuarios pueden remover sus propios kudos" ON workout_kudos;
+CREATE POLICY "Usuarios pueden remover sus propios kudos" ON workout_kudos
+  FOR DELETE USING (auth.uid() = kudo_user_id);
+
+
+-- B. Tabla de Comentarios de Entrenamientos
+CREATE TABLE IF NOT EXISTS workout_comments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workout_id TEXT NOT NULL,
+  workout_user_id UUID REFERENCES profiles(user_id) ON DELETE CASCADE NOT NULL,
+  comment_user_id UUID REFERENCES profiles(user_id) ON DELETE CASCADE DEFAULT auth.uid() NOT NULL,
+  text TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Habilitar RLS en Comentarios
+ALTER TABLE workout_comments ENABLE ROW LEVEL SECURITY;
+
+-- Políticas de RLS para Comentarios
+DROP POLICY IF EXISTS "Amigos pueden ver comentarios" ON workout_comments;
+CREATE POLICY "Amigos pueden ver comentarios" ON workout_comments
+  FOR SELECT USING (
+    auth.uid() = workout_user_id OR 
+    auth.uid() = comment_user_id OR
+    EXISTS (
+      SELECT 1 FROM friendships 
+      WHERE friendships.status = 'accepted' 
+        AND (
+          (friendships.user_id = workout_user_id AND friendships.friend_id = auth.uid()) OR
+          (friendships.user_id = auth.uid() AND friendships.friend_id = workout_user_id)
+        )
+    )
+  );
+
+DROP POLICY IF EXISTS "Usuarios pueden comentar entrenamientos de amigos" ON workout_comments;
+CREATE POLICY "Usuarios pueden comentar entrenamientos de amigos" ON workout_comments
+  FOR INSERT WITH CHECK (
+    auth.uid() = comment_user_id AND (
+      auth.uid() = workout_user_id OR
+      EXISTS (
+        SELECT 1 FROM friendships 
+        WHERE friendships.status = 'accepted' 
+          AND (
+            (friendships.user_id = workout_user_id AND friendships.friend_id = auth.uid()) OR
+            (friendships.user_id = auth.uid() AND friendships.friend_id = workout_user_id)
+          )
+      )
+    )
+  );
+
+DROP POLICY IF EXISTS "Usuarios pueden borrar sus propios comentarios o el dueño del entrenamiento" ON workout_comments;
+CREATE POLICY "Usuarios pueden borrar sus propios comentarios o el dueño del entrenamiento" ON workout_comments
+  FOR DELETE USING (auth.uid() = comment_user_id OR auth.uid() = workout_user_id);
+
+
+-- ==========================================
+-- 8. SISTEMA DE DISPOSITIVOS Y API DE STRAVA
+-- ==========================================
+
+-- Tabla para almacenar tokens y credenciales OAuth de Strava aislados por RLS
+CREATE TABLE IF NOT EXISTS strava_credentials (
+  user_id UUID REFERENCES profiles(user_id) ON DELETE CASCADE NOT NULL,
+  client_id TEXT NOT NULL,
+  client_secret TEXT NOT NULL,
+  access_token TEXT,
+  refresh_token TEXT,
+  expires_at BIGINT, -- Timestamp UNIX de expiración del token
+  athlete_name TEXT,
+  athlete_username TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  PRIMARY KEY (user_id)
+);
+
+-- Habilitar RLS en credenciales de Strava
+ALTER TABLE strava_credentials ENABLE ROW LEVEL SECURITY;
+
+-- Políticas de seguridad RLS
+DROP POLICY IF EXISTS "Usuarios pueden gestionar sus propias credenciales Strava" ON strava_credentials;
+CREATE POLICY "Usuarios pueden gestionar sus propias credenciales Strava" ON strava_credentials
+  FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+

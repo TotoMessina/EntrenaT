@@ -42,7 +42,9 @@ export default function App() {
     handleUpdateReadinessLogs, handleProfileChange,
     handleUpdateAllWorkouts, handleResetMockData,
     // COMUNIDAD
-    searchUsers, sendFriendRequest, acceptFriendRequest, removeFriend, fetchFriendsList, fetchFriendData,
+    searchUsers, sendFriendRequest, acceptFriendRequest, removeFriend, fetchFriendsList, fetchFriendData, fetchSocialFeed, toggleKudo, addComment,
+    // INTEGRACIÓN STRAVA
+    saveStravaCredentials, getStravaConnection, disconnectStrava, exchangeStravaCode, syncRecentStravaActivities,
   } = useAppData();
 
   // ── Estado de UI puro (navegación, tema, modales) ──
@@ -159,6 +161,10 @@ export default function App() {
             removeFriend={removeFriend}
             fetchFriendsList={fetchFriendsList}
             fetchFriendData={fetchFriendData}
+            fetchSocialFeed={fetchSocialFeed}
+            toggleKudo={toggleKudo}
+            addComment={addComment}
+            profile={profile}
             showAlert={showAlert}
             showConfirm={showConfirm}
           />
@@ -175,6 +181,11 @@ export default function App() {
             user={user}
             onLogout={handleLogout}
             onOpenReport={() => setIsReportOpen(true)}
+            saveStravaCredentials={saveStravaCredentials}
+            getStravaConnection={getStravaConnection}
+            disconnectStrava={disconnectStrava}
+            exchangeStravaCode={exchangeStravaCode}
+            syncRecentStravaActivities={syncRecentStravaActivities}
             showAlert={showAlert}
             showConfirm={showConfirm}
           />
