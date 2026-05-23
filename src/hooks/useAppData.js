@@ -1498,7 +1498,7 @@ export function useAppData() {
         const isDup = workouts.some(oldW => 
           oldW.type === 'running' && 
           oldW.date === newW.date && 
-          Math.abs(oldW.distance - newW.distance) < 0.05
+          Math.abs(oldW.distance - newW.distance) <= 1.0
         );
         if (!isDup) {
           updatedWorkouts.push(newW);
@@ -1592,7 +1592,7 @@ export function useAppData() {
         const isDup = workouts.some(oldW => 
           oldW.type === 'running' && 
           oldW.date === dateStr && 
-          Math.abs(oldW.distance - distKm) < 0.05
+          Math.abs(oldW.distance - distKm) <= 1.0
         );
 
         if (!isDup) {
