@@ -36,6 +36,11 @@ BEGIN
         ALTER TABLE workouts ADD COLUMN advanced_metrics JSONB;
     END IF;
 
+    -- 4.2 Agregar columna trainedMuscles si no existe
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'workouts' AND column_name = 'trainedMuscles') THEN
+        ALTER TABLE workouts ADD COLUMN "trainedMuscles" TEXT[];
+    END IF;
+
     -- 5. Convertir la clave primaria de (id) a (id, user_id) compuesta
     IF EXISTS (
         SELECT 1 FROM information_schema.table_constraints 
@@ -74,6 +79,7 @@ CREATE TABLE IF NOT EXISTS workouts (
   rpe INTEGER,
   notes TEXT,
   "muscleGroup" TEXT,
+  "trainedMuscles" TEXT[],
   "sessionName" TEXT,
   exercises JSONB,
   gpx_data JSONB,

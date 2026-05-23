@@ -1491,8 +1491,7 @@ export function useAppData() {
         }
       ];
 
-      let addedCount = 0;
-      const updatedWorkouts = [...workouts];
+      const newWorkoutsList = [];
       
       mockSync.forEach(newW => {
         const isDup = workouts.some(oldW => 
@@ -1501,18 +1500,28 @@ export function useAppData() {
           Math.abs(oldW.distance - newW.distance) <= 1.0
         );
         if (!isDup) {
-          updatedWorkouts.push(newW);
-          addedCount++;
+          newWorkoutsList.push(newW);
         }
       });
 
-      if (addedCount > 0) {
-        updatedWorkouts.sort((a, b) => new Date(b.date) - new Date(a.date));
-        setWorkouts(updatedWorkouts);
-        localStorage.setItem('fitanalytics_workouts', JSON.stringify(updatedWorkouts));
-        return { success: true, addedCount, message: `¡Sincronización exitosa! Se importaron ${addedCount} nuevas actividades de running.` };
+      if (newWorkoutsList.length === 0) {
+        return { success: true, addedCount: 0, message: 'No se encontraron nuevas actividades para importar.' };
       }
-      return { success: true, addedCount: 0, message: 'No se encontraron nuevas actividades para importar.' };
+
+      const confirmed = await showConfirm(
+        'Sincronizar con Strava',
+        `Se encontraron ${newWorkoutsList.length} nuevas carreras listas para sincronizar en modo demostración. ¿Deseas importarlas ahora?`
+      );
+
+      if (!confirmed) {
+        return { success: true, addedCount: 0, message: 'Sincronización cancelada por el usuario.' };
+      }
+
+      const updatedWorkouts = [...workouts, ...newWorkoutsList];
+      updatedWorkouts.sort((a, b) => new Date(b.date) - new Date(a.date));
+      setWorkouts(updatedWorkouts);
+      localStorage.setItem('fitanalytics_workouts', JSON.stringify(updatedWorkouts));
+      return { success: true, addedCount: newWorkoutsList.length, message: `¡Sincronización exitosa! Se importaron ${newWorkoutsList.length} nuevas actividades de running.` };
     }
 
     const client = getSupabase();
@@ -1613,6 +1622,15 @@ export function useAppData() {
       }
 
       if (addedCount > 0) {
+        const confirmed = await showConfirm(
+          'Sincronizar con Strava',
+          `Se encontraron ${addedCount} nuevas carreras en tu cuenta de Strava. ¿Deseas sincronizarlas e importarlas ahora?`
+        );
+
+        if (!confirmed) {
+          return { success: true, addedCount: 0, message: 'Sincronización cancelada por el usuario.' };
+        }
+
         for (const w of newWorkoutsList) {
           const payload = workoutToSupabasePayload(w, user.id);
           const { error: insErr } = await client.from('workouts').insert(payload);
@@ -1632,7 +1650,7 @@ export function useAppData() {
       console.error('Error in syncRecentStravaActivities:', e);
       return { success: false, message: e.message };
     }
-  }, [user, workouts]);
+  }, [user, workouts, showConfirm]);
 
 
 

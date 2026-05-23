@@ -1277,6 +1277,7 @@ create table if not exists workouts (
   rpe integer,
   notes text,
   "muscleGroup" text,
+  "trainedMuscles" text[],
   "sessionName" text,
   exercises jsonb,
   gpx_data jsonb,
@@ -1285,10 +1286,10 @@ create table if not exists workouts (
 );
 
 -- MIGRACIÓN IMPORTANTE (EJECUTAR EN TU SQL EDITOR SI YA CREASTE LA TABLA ANTES):
--- Si tu tabla ya existe y te arroja error 403 / "violates row-level security policy", 
--- es porque el ID de los datos de prueba (ej: '1', '2', '3') ya existe en la base de datos cargada por otro usuario.
--- Ejecuta este script de migración para convertir tu clave primaria a una clave compuesta (id, user_id):
+-- Si tu tabla ya existe y te arroja error 403 o error 400 (Falta la columna "trainedMuscles"),
+-- ejecuta este script de migración para actualizar la estructura de tu tabla actual en Supabase:
 --
+-- alter table workouts add column if not exists "trainedMuscles" text[];
 -- delete from workouts where user_id is null;
 -- alter table workouts drop constraint if exists workouts_pkey;
 -- alter table workouts alter column user_id set not null;
