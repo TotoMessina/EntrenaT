@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Activity, Clock, Heart, Award, ShieldAlert, Sparkles, Smile, MessageSquareCheck, Check } from 'lucide-react';
 
-export default function ReadinessDashboard({ profile = {}, onUpdateReadinessLogs, readinessLogs = [] }) {
+export default function ReadinessDashboard({ profile = {}, onUpdateReadinessLogs, readinessLogs = [], workouts = [] }) {
   const todayStr = new Date().toISOString().split('T')[0];
   
   // Daily check-in state
@@ -123,6 +123,75 @@ export default function ReadinessDashboard({ profile = {}, onUpdateReadinessLogs
     if (todayLog) return getLogDetails(todayLog);
     return getLogDetails({ sleep, soreness, restingHr, hrv });
   }, [todayLog, sleep, soreness, restingHr, hrv]);
+
+  // Carga Deportiva y Ratio ACWR (Acute:Chronic Workload Ratio)
+  const acwrData = useMemo(() => {
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    
+    const dailyLoads = Array(28).fill(0);
+    const dailyDistances = Array(28).fill(0);
+    
+    for (let i = 0; i < 28; i++) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      const dStr = d.toISOString().split('T')[0];
+      
+      const dayRuns = workouts.filter(w => w.type === 'running' && w.date === dStr);
+      const dayLoad = dayRuns.reduce((sum, run) => sum + (Number(run.distance) || 0) * (Number(run.rpe) || 6), 0);
+      const dayDist = dayRuns.reduce((sum, run) => sum + (Number(run.distance) || 0), 0);
+      
+      dailyLoads[i] = dayLoad;
+      dailyDistances[i] = dayDist;
+    }
+    
+    const acuteLoad = dailyLoads.slice(0, 7).reduce((sum, val) => sum + val, 0);
+    const chronicLoad = dailyLoads.reduce((sum, val) => sum + val, 0) / 4;
+    
+    const acuteDist = dailyDistances.slice(0, 7).reduce((sum, val) => sum + val, 0);
+    const chronicDist = dailyDistances.reduce((sum, val) => sum + val, 0) / 4;
+    
+    let ratio = 0;
+    if (chronicLoad > 0) {
+      ratio = Math.round((acuteLoad / chronicLoad) * 100) / 100;
+    }
+    
+    let zone = 'under'; // under, sweet, transition, danger
+    let statusText = 'Sub-entrenamiento';
+    let zoneColor = '#3b82f6'; // Blue
+    let description = 'Tu carga de entrenamiento actual es muy baja respecto a tu promedio de las últimas semanas. Tu condición física podría disminuir. Si te sientes con energía, es un buen momento para incrementar gradualmente el volumen.';
+    
+    if (ratio >= 0.8 && ratio <= 1.3) {
+      zone = 'sweet';
+      statusText = 'Sweet Spot (Zona Óptima)';
+      zoneColor = '#10b981'; // Green
+      description = '¡Excelente balance! Estás en la zona metabólica óptima: estás acumulando el estímulo necesario para progresar físicamente minimizando drásticamente el riesgo de lesiones. Mantén esta constancia.';
+    } else if (ratio > 1.3 && ratio <= 1.5) {
+      zone = 'transition';
+      statusText = 'Zona de Transición';
+      zoneColor = '#f59e0b'; // Amber
+      description = 'Atención. Estás entrenando con una carga superior a la asimilada crónicamente. Tu nivel de fatiga neuromuscular es elevado y tu riesgo de lesión aumenta levemente. Evita sumar kilómetros bruscos en tu próxima sesión.';
+    } else if (ratio > 1.5) {
+      zone = 'danger';
+      statusText = 'DANGER ZONE (Sobrecarga)';
+      zoneColor = '#ef4444'; // Red
+      description = '🚨 ¡Pico crítico de carga física! Has incrementado tu carga semanal en más de un 50% de tu promedio habitual. Tu probabilidad de sufrir contracturas, desgarros o lesiones por estrés es extremadamente alta. Prioriza descanso completo y descargas de volumen ya mismo.';
+    }
+    
+    return {
+      acuteLoad: Math.round(acuteLoad),
+      chronicLoad: Math.round(chronicLoad),
+      acuteDist: Math.round(acuteDist * 10) / 10,
+      chronicDist: Math.round(chronicDist * 10) / 10,
+      ratio,
+      zone,
+      statusText,
+      zoneColor,
+      description,
+      dailyLoads: dailyLoads.reverse(), // chronologically ascending for the chart
+      dailyDistances: dailyDistances.reverse()
+    };
+  }, [workouts]);
 
   return (
     <div className="readiness-container animate-fade-in" style={{ padding: '0 0.5rem' }}>
@@ -347,6 +416,171 @@ export default function ReadinessDashboard({ profile = {}, onUpdateReadinessLogs
           <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: '1.4', maxWidth: '280px' }}>
             {activeCheckInData.recommendation}
           </p>
+        </div>
+      </div>
+
+      {/* SECCIÓN ADICIONAL: ANALIZADOR DE CARGA DEPORTIVA Y RATIO ACWR */}
+      <div className="glass-card fade-in" style={{ padding: '1.5rem', marginBottom: '1.5rem', borderLeft: `4px solid ${acwrData.zoneColor}`, background: 'rgba(255,255,255,0.01)' }}>
+        <h3 className="card-title flex-center" style={{ justifyContent: 'flex-start', gap: '0.5rem', fontSize: '1rem', marginBottom: '0.5rem', color: '#fff', margin: 0 }}>
+          <Activity size={18} style={{ color: acwrData.zoneColor }} />
+          Analizador de Carga Deportiva y Lesiones (Ratio ACWR)
+        </h3>
+        <p className="card-subtitle" style={{ fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: '1.4', marginBottom: '1.25rem', marginTop: '0.25rem' }}>
+          El Ratio de Carga de Trabajo Aguda-Crónica (ACWR) compara tu fatiga reciente (volumen acumulado de los últimos 7 días) frente a tu capacidad aeróbica asimilada históricamente (últimos 28 días). Mantener tu ratio en la zona segura previene lesiones cardiovasculares y musculares.
+        </p>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))', gap: '1.5rem', alignItems: 'center' }}>
+          {/* Métricas e Indicador */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <span className="text-secondary text-xs" style={{ textTransform: 'uppercase', letterSpacing: '0.05em' }}>Ratio ACWR Actual:</span>
+              <strong style={{ fontSize: '2rem', fontWeight: '800', color: acwrData.zoneColor, textShadow: `0 0 10px ${acwrData.zoneColor}33`, margin: 0 }}>
+                {acwrData.ratio || '0.00'}
+              </strong>
+              <span className="badge" style={{
+                backgroundColor: `${acwrData.zoneColor}15`,
+                color: acwrData.zoneColor,
+                border: `1px solid ${acwrData.zoneColor}33`,
+                fontSize: '0.7rem',
+                padding: '0.2rem 0.5rem',
+                borderRadius: '6px',
+                marginLeft: '0.5rem'
+              }}>
+                {acwrData.statusText}
+              </span>
+            </div>
+
+            {/* Visual Gauge Bar */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+              <div style={{ width: '100%', height: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', position: 'relative', overflow: 'visible' }}>
+                {/* Under-training Zone (0.0 - 0.8) */}
+                <div style={{ position: 'absolute', left: '0%', width: '40%', height: '100%', borderRight: '1px solid rgba(255,255,255,0.1)' }} title="Sub-entrenamiento"></div>
+                {/* Sweet Spot Zone (0.8 - 1.3) */}
+                <div style={{ position: 'absolute', left: '40%', width: '25%', height: '100%', background: 'rgba(16, 185, 129, 0.1)', borderRight: '1px solid rgba(255,255,255,0.1)' }} title="Zona Óptima"></div>
+                {/* Transition Zone (1.3 - 1.5) */}
+                <div style={{ position: 'absolute', left: '65%', width: '10%', height: '100%', background: 'rgba(245, 158, 11, 0.1)', borderRight: '1px solid rgba(255,255,255,0.1)' }} title="Precaución"></div>
+                {/* Danger Zone (1.5 - Max) */}
+                <div style={{ position: 'absolute', left: '75%', width: '25%', height: '100%', background: 'rgba(239, 68, 68, 0.1)', borderTopRightRadius: '4px', borderBottomRightRadius: '4px' }} title="Peligro"></div>
+
+                {/* Marker Pin */}
+                <div style={{
+                  position: 'absolute',
+                  left: `${Math.min(98, (acwrData.ratio / 2.0) * 100)}%`,
+                  top: '-4px',
+                  width: '16px',
+                  height: '16px',
+                  borderRadius: '50%',
+                  background: '#fff',
+                  border: `3px solid ${acwrData.zoneColor}`,
+                  boxShadow: `0 0 8px ${acwrData.zoneColor}`,
+                  transform: 'translateX(-50%)',
+                  transition: 'left 0.6s ease',
+                  zIndex: 2
+                }}></div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.6rem', color: 'var(--text-muted)' }}>
+                <span>0.0 (Bajo)</span>
+                <span style={{ color: '#10b981' }}>0.8 (Sweet)</span>
+                <span style={{ color: '#f59e0b' }}>1.3 (Límite)</span>
+                <span style={{ color: '#ef4444' }}>1.5 (Peligro)</span>
+                <span>2.0+</span>
+              </div>
+            </div>
+
+            {/* Recommendation Box */}
+            <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+              {acwrData.description}
+            </p>
+
+            {/* Detailed stats split */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.03)', paddingTop: '0.75rem', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+              <div>
+                <span style={{ display: 'block' }}>Carga Aguda (7d): <strong>{acwrData.acuteLoad} uds</strong></span>
+                <span style={{ display: 'block' }}>Kilometraje (7d): <strong style={{ color: 'var(--color-running)' }}>{acwrData.acuteDist} km</strong></span>
+              </div>
+              <div>
+                <span style={{ display: 'block' }}>Carga Crónica (28d): <strong>{acwrData.chronicLoad} uds</strong></span>
+                <span style={{ display: 'block' }}>Kilometraje Prom. (28d): <strong>{acwrData.chronicDist} km/sem</strong></span>
+              </div>
+            </div>
+          </div>
+
+          {/* SVG Area Chart */}
+          <div style={{ display: 'flex', flexDirection: 'column', height: '100%', justifyContent: 'space-between', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span className="text-secondary text-xs font-semibold" style={{ color: '#fff' }}>Historial de Carga Diaria (Últimos 28 días)</span>
+              <span className="badge" style={{ fontSize: '0.6rem', background: 'rgba(255,255,255,0.03)', color: 'var(--text-muted)', border: '1px solid var(--border-light)', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>Métrica: Volumen × RPE</span>
+            </div>
+            
+            <div style={{ flex: 1, minHeight: '130px', position: 'relative', marginTop: '0.25rem' }}>
+              <svg viewBox="0 0 100 30" width="100%" height="130" preserveAspectRatio="none" style={{ overflow: 'visible', width: '100%' }}>
+                <defs>
+                  <linearGradient id="acwrGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={acwrData.zoneColor} stopOpacity="0.25" />
+                    <stop offset="100%" stopColor={acwrData.zoneColor} stopOpacity="0.0" />
+                  </linearGradient>
+                </defs>
+                
+                {/* Grid Lines */}
+                <line x1="0" y1="10" x2="100" y2="10" stroke="rgba(255,255,255,0.03)" strokeWidth="0.2" />
+                <line x1="0" y1="20" x2="100" y2="20" stroke="rgba(255,255,255,0.03)" strokeWidth="0.2" />
+                
+                {/* Area path */}
+                <path 
+                  d={(() => {
+                    const points = acwrData.dailyLoads.map((val, idx) => {
+                      const x = (idx / 27) * 100;
+                      const maxVal = Math.max(...acwrData.dailyLoads, 10);
+                      const y = 30 - (val / maxVal) * 25;
+                      return `${x},${y}`;
+                    });
+                    return `M 0,30 L ${points.join(' L ')} L 100,30 Z`;
+                  })()} 
+                  fill="url(#acwrGrad)" 
+                />
+                
+                {/* Line path */}
+                <path 
+                  d={(() => {
+                    const points = acwrData.dailyLoads.map((val, idx) => {
+                      const x = (idx / 27) * 100;
+                      const maxVal = Math.max(...acwrData.dailyLoads, 10);
+                      const y = 30 - (val / maxVal) * 25;
+                      return `${x},${y}`;
+                    });
+                    return `M ${points.join(' L ')}`;
+                  })()} 
+                  fill="none" 
+                  stroke={acwrData.zoneColor} 
+                  strokeWidth="0.75" 
+                  strokeLinecap="round"
+                />
+                
+                {/* Dots for runs */}
+                {acwrData.dailyLoads.map((val, idx) => {
+                  if (val === 0) return null;
+                  const x = (idx / 27) * 100;
+                  const maxVal = Math.max(...acwrData.dailyLoads, 10);
+                  const y = 30 - (val / maxVal) * 25;
+                  return (
+                    <circle 
+                      key={idx} 
+                      cx={x} 
+                      cy={y} 
+                      r="0.8" 
+                      fill="#fff" 
+                      stroke={acwrData.zoneColor} 
+                      strokeWidth="0.3" 
+                    />
+                  );
+                })}
+              </svg>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
+                <span>Hace 28 días</span>
+                <span>Hoy</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 

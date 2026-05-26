@@ -30,6 +30,15 @@ ChartJS.register(
   Filler
 );
 
+// Start of week helper
+const getStartOfWeek = (d) => {
+  const date = new Date(d);
+  const day = date.getDay();
+  const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+  const monday = new Date(date.setDate(diff));
+  return monday.toISOString().split('T')[0];
+};
+
 export default function AnalyticsView({ workouts, theme }) {
   const runningWorkouts = workouts
     .filter(w => w.type === 'running')
@@ -45,6 +54,575 @@ export default function AnalyticsView({ workouts, theme }) {
   const textColor = isLight ? '#475569' : '#9ca3af'; // Slate 600 or Gray 400
   const legendColor = isLight ? '#1e293b' : '#e5e7eb'; // Slate 800 or Gray 200
   const doughnutBorderColor = isLight ? '#ffffff' : 'rgba(255, 255, 255, 0.1)';
+
+  // --- RUNNING VOLUME HISTORICAL COMPARATOR STATES & COMPUTATIONS ---
+  const [volumeTimeframe, setVolumeTimeframe] = useState('semana'); // 'semana', 'mes', 'año'
+  const [volumeBenchmark, setVolumeBenchmark] = useState('personal-goal'); // 'prev-period', 'personal-goal', 'amateur', 'boston', 'elite'
+  
+  // --- RUNNING PERIOD TO PERIOD DAY-BY-DAY COMPARATOR STATES & COMPUTATIONS ---
+  const [compTimeframe, setCompTimeframe] = useState('semana'); // 'semana', 'mes'
+  const [selectedPeriodA, setSelectedPeriodA] = useState('');
+  const [selectedPeriodB, setSelectedPeriodB] = useState('');
+
+  // Generate lists of available periods dynamically (scans user workouts for active periods)
+  const getAvailableWeeks = () => {
+    const uniqueWeeks = new Set();
+    
+    // Scan runningWorkouts and get unique start of week strings
+    runningWorkouts.forEach(w => {
+      if (w.date) {
+        const wStart = getStartOfWeek(new Date(w.date + 'T00:00:00'));
+        uniqueWeeks.add(wStart);
+      }
+    });
+
+    // Also ensure the current week is included in the list so there's always an active option
+    const currentWeekStart = getStartOfWeek(new Date());
+    uniqueWeeks.add(currentWeekStart);
+
+    // Convert Set to array and sort from newest to oldest
+    const sortedWeeks = Array.from(uniqueWeeks).sort((a, b) => new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00'));
+
+    // Map to the formatted list
+    return sortedWeeks.map(startStr => {
+      const start = new Date(startStr + 'T00:00:00');
+      const end = new Date(startStr + 'T00:00:00');
+      end.setDate(start.getDate() + 6);
+      return {
+        value: startStr,
+        label: `Semana: ${start.getDate()}/${start.getMonth() + 1} al ${end.getDate()}/${end.getMonth() + 1}`
+      };
+    });
+  };
+
+  const getAvailableMonths = () => {
+    const uniqueMonths = new Set();
+    const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+    // Scan runningWorkouts and get unique YYYY-MM strings
+    runningWorkouts.forEach(w => {
+      if (w.date) {
+        const parts = w.date.split('-');
+        if (parts.length >= 2) {
+          uniqueMonths.add(`${parts[0]}-${parts[1]}`); // e.g. "2026-05"
+        }
+      }
+    });
+
+    // Also ensure current month is included
+    const today = new Date();
+    const currentMonthVal = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    uniqueMonths.add(currentMonthVal);
+
+    // Convert Set to array and sort from newest to oldest
+    const sortedMonths = Array.from(uniqueMonths).sort((a, b) => {
+      const [yearA, monthA] = a.split('-').map(Number);
+      const [yearB, monthB] = b.split('-').map(Number);
+      return new Date(yearB, monthB - 1, 1) - new Date(yearA, monthA - 1, 1);
+    });
+
+    // Map to formatted list
+    return sortedMonths.map(monthStr => {
+      const parts = monthStr.split('-');
+      const year = parseInt(parts[0]);
+      const mIndex = parseInt(parts[1]) - 1;
+      return {
+        year,
+        month: mIndex,
+        value: monthStr,
+        label: `${monthNames[mIndex]} ${year}`
+      };
+    });
+  };
+
+  const availableWeeks = getAvailableWeeks();
+  const availableMonths = getAvailableMonths();
+
+  // Handle initialization and changes of timeframe
+  const handleCompTimeframeChange = (val) => {
+    setCompTimeframe(val);
+    if (val === 'semana' && availableWeeks.length > 0) {
+      setSelectedPeriodA(availableWeeks[0].value);
+      setSelectedPeriodB(availableWeeks[1]?.value || availableWeeks[0].value);
+    } else if (val === 'mes' && availableMonths.length > 0) {
+      setSelectedPeriodA(availableMonths[0].value);
+      setSelectedPeriodB(availableMonths[1]?.value || availableMonths[0].value);
+    }
+  };
+
+  // Auto initialize selectedPeriodA & B once lists are computed
+  React.useEffect(() => {
+    if (!selectedPeriodA || !selectedPeriodB) {
+      if (compTimeframe === 'semana' && availableWeeks.length > 0) {
+        if (!selectedPeriodA) setSelectedPeriodA(availableWeeks[0].value);
+        if (!selectedPeriodB) setSelectedPeriodB(availableWeeks[1]?.value || availableWeeks[0].value);
+      } else if (compTimeframe === 'mes' && availableMonths.length > 0) {
+        if (!selectedPeriodA) setSelectedPeriodA(availableMonths[0].value);
+        if (!selectedPeriodB) setSelectedPeriodB(availableMonths[1]?.value || availableMonths[0].value);
+      }
+    }
+  }, [compTimeframe, availableWeeks, availableMonths]);
+
+  // Compute Monday-first index
+  const getMondayFirstIndex = (d) => {
+    const day = d.getDay();
+    return day === 0 ? 6 : day - 1;
+  };
+
+  // Get previous week start date string
+  const getPrevWeekStart = (weekStartStr) => {
+    const d = new Date(weekStartStr + 'T00:00:00');
+    d.setDate(d.getDate() - 7);
+    return d.toISOString().split('T')[0];
+  };
+
+  // Get previous month string
+  const getPrevMonthValue = (monthStr) => {
+    if (!monthStr) return '';
+    const parts = monthStr.split('-');
+    const year = parseInt(parts[0]);
+    const month = parseInt(parts[1]) - 1;
+    const d = new Date(year, month, 1);
+    d.setMonth(d.getMonth() - 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  };
+
+  const weekStartA = compTimeframe === 'semana' ? (selectedPeriodA || (availableWeeks[0]?.value || '')) : '';
+  const weekStartB = compTimeframe === 'semana' ? (selectedPeriodB || (availableWeeks[1]?.value || availableWeeks[0]?.value || '')) : '';
+
+  const monthStartA = compTimeframe === 'mes' ? (selectedPeriodA || (availableMonths[0]?.value || '')) : '';
+  const monthStartB = compTimeframe === 'mes' ? (selectedPeriodB || (availableMonths[1]?.value || availableMonths[0]?.value || '')) : '';
+
+  // Helper to compute stats for a specific running period A or B
+  const computePeriodStats = (startStr) => {
+    let totalDist = 0;
+    let totalDurationSecs = 0;
+    let activitiesCount = 0;
+
+    if (!startStr) {
+      return { totalDist, avgPaceStr: '--:--', totalDurationStr: '0m', avgSpeed: 0, activitiesCount };
+    }
+
+    let start, end;
+    let isMonth = compTimeframe === 'mes';
+
+    if (!isMonth) {
+      start = new Date(startStr + 'T00:00:00');
+      end = new Date(start);
+      end.setDate(start.getDate() + 6);
+    } else {
+      const parts = startStr.split('-');
+      const year = parseInt(parts[0]);
+      const month = parseInt(parts[1]) - 1;
+      start = new Date(year, month, 1);
+      end = new Date(year, month + 1, 0); // last day of the month
+    }
+
+    runningWorkouts.forEach(w => {
+      const wDate = new Date(w.date + 'T00:00:00');
+      if (wDate >= start && wDate <= end) {
+        totalDist += Number(w.distance) || 0;
+        totalDurationSecs += timeStringToSeconds(w.duration) || 0;
+        activitiesCount += 1;
+      }
+    });
+
+    // Compute average pace (minutes per km)
+    let avgPaceStr = '--:--';
+    if (totalDist > 0 && totalDurationSecs > 0) {
+      const avgPaceSecs = totalDurationSecs / totalDist;
+      const mins = Math.floor(avgPaceSecs / 60);
+      const secs = Math.round(avgPaceSecs % 60);
+      avgPaceStr = `${mins}:${String(secs).padStart(2, '0')}`;
+    }
+
+    // Compute total duration string (e.g. "3h 45m" or "45m")
+    let totalDurationStr = '0m';
+    if (totalDurationSecs > 0) {
+      const hrs = Math.floor(totalDurationSecs / 3600);
+      const mins = Math.floor((totalDurationSecs % 3600) / 60);
+      if (hrs > 0) {
+        totalDurationStr = `${hrs}h ${mins}m`;
+      } else {
+        totalDurationStr = `${mins}m`;
+      }
+    }
+
+    // Compute average speed (km/h)
+    let avgSpeed = 0;
+    if (totalDurationSecs > 0) {
+      avgSpeed = (totalDist / (totalDurationSecs / 3600));
+    }
+
+    return {
+      totalDist: Math.round(totalDist * 10) / 10,
+      avgPaceStr,
+      totalDurationStr,
+      avgSpeed: Math.round(avgSpeed * 10) / 10,
+      activitiesCount
+    };
+  };
+
+  const statsA = computePeriodStats(compTimeframe === 'semana' ? weekStartA : monthStartA);
+  const statsB = computePeriodStats(compTimeframe === 'semana' ? weekStartB : monthStartB);
+
+  const getWeeklyDayComparison = () => {
+    const distA = Array(7).fill(0);
+    const distB = Array(7).fill(0);
+    if (!weekStartA) return { distA, distB };
+    
+    const startA = new Date(weekStartA + 'T00:00:00');
+    const endA = new Date(startA);
+    endA.setDate(startA.getDate() + 6);
+    
+    const startB = new Date(weekStartB + 'T00:00:00');
+    const endB = new Date(startB);
+    endB.setDate(startB.getDate() + 6);
+
+    runningWorkouts.forEach(w => {
+      const wDate = new Date(w.date + 'T00:00:00');
+      const dist = Number(w.distance) || 0;
+      
+      if (wDate >= startA && wDate <= endA) {
+        const idx = getMondayFirstIndex(wDate);
+        distA[idx] += dist;
+      } else if (wDate >= startB && wDate <= endB) {
+        const idx = getMondayFirstIndex(wDate);
+        distB[idx] += dist;
+      }
+    });
+
+    return { distA: distA.map(v => Math.round(v * 10) / 10), distB: distB.map(v => Math.round(v * 10) / 10) };
+  };
+
+  const getMonthlyDayComparison = () => {
+    const distA = Array(31).fill(0);
+    const distB = Array(31).fill(0);
+    if (!monthStartA) return { distA, distB };
+
+    const partsA = monthStartA.split('-');
+    const yearA = parseInt(partsA[0]);
+    const mIndexA = parseInt(partsA[1]) - 1;
+
+    const partsB = monthStartB.split('-');
+    const yearB = parseInt(partsB[0]);
+    const mIndexB = parseInt(partsB[1]) - 1;
+
+    runningWorkouts.forEach(w => {
+      const wDate = new Date(w.date + 'T00:00:00');
+      const dist = Number(w.distance) || 0;
+      const day = wDate.getDate();
+      
+      if (wDate.getFullYear() === yearA && wDate.getMonth() === mIndexA) {
+        distA[day - 1] += dist;
+      } else if (wDate.getFullYear() === yearB && wDate.getMonth() === mIndexB) {
+        distB[day - 1] += dist;
+      }
+    });
+
+    return { distA: distA.map(v => Math.round(v * 10) / 10), distB: distB.map(v => Math.round(v * 10) / 10) };
+  };
+
+  const comparisonData = compTimeframe === 'semana' ? getWeeklyDayComparison() : getMonthlyDayComparison();
+  const comparisonLabels = compTimeframe === 'semana'
+    ? ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+    : Array.from({ length: 31 }, (_, i) => `Día ${i + 1}`);
+
+  const activeLabelA = compTimeframe === 'semana'
+    ? (() => {
+        if (!weekStartA) return 'Semana A';
+        const start = new Date(weekStartA + 'T00:00:00');
+        const end = new Date(start);
+        end.setDate(start.getDate() + 6);
+        return `Semana A (${start.getDate()}/${start.getMonth()+1} al ${end.getDate()}/${end.getMonth()+1})`;
+      })()
+    : (() => {
+        if (!monthStartA) return 'Mes A';
+        const parts = monthStartA.split('-');
+        const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+        return `Mes A (${monthNames[parseInt(parts[1]) - 1]} ${parts[0]})`;
+      })();
+
+  const activeLabelB = compTimeframe === 'semana'
+    ? (() => {
+        if (!weekStartB) return 'Semana B';
+        const start = new Date(weekStartB + 'T00:00:00');
+        const end = new Date(start);
+        end.setDate(start.getDate() + 6);
+        return `Semana B (${start.getDate()}/${start.getMonth()+1} al ${end.getDate()}/${end.getMonth()+1})`;
+      })()
+    : (() => {
+        if (!monthStartB) return 'Mes B';
+        const parts = monthStartB.split('-');
+        const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+        return `Mes B (${monthNames[parseInt(parts[1]) - 1]} ${parts[0]})`;
+      })();
+
+  const compChartData = {
+    labels: comparisonLabels,
+    datasets: [
+      {
+        label: activeLabelA,
+        data: comparisonData.distA,
+        borderColor: '#10b981',
+        backgroundColor: 'rgba(16, 185, 129, 0.12)',
+        borderWidth: 3,
+        pointBackgroundColor: '#10b981',
+        pointHoverRadius: 6,
+        fill: true,
+        tension: 0.35
+      },
+      {
+        label: activeLabelB,
+        data: comparisonData.distB,
+        borderColor: '#3b82f6',
+        backgroundColor: 'rgba(59, 130, 246, 0.05)',
+        borderWidth: 2.5,
+        borderDash: [5, 5],
+        pointBackgroundColor: '#3b82f6',
+        pointRadius: 3,
+        fill: true,
+        tension: 0.35
+      }
+    ]
+  };
+
+  const compChartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: 'top',
+        labels: {
+          color: legendColor,
+          font: { family: 'Outfit', size: 11 }
+        }
+      },
+      tooltip: {
+        callbacks: {
+          label: (context) => ` Volumen: ${context.raw} km`
+        }
+      }
+    },
+    scales: {
+      y: {
+        grid: { color: gridColor },
+        ticks: { color: textColor },
+        title: { display: true, text: 'Kilómetros Corridos (km)', color: textColor }
+      },
+      x: {
+        grid: { display: false },
+        ticks: { color: textColor }
+      }
+    }
+  };
+  const [weeklyGoal, setWeeklyGoal] = useState(() => Number(localStorage.getItem('fitanalytics_weekly_km_goal') || '40'));
+  const [monthlyGoal, setMonthlyGoal] = useState(() => Number(localStorage.getItem('fitanalytics_monthly_km_goal') || '160'));
+  const [yearlyGoal, setYearlyGoal] = useState(() => Number(localStorage.getItem('fitanalytics_yearly_km_goal') || '1500'));
+
+
+
+  // Grouping periods
+  const getVolumeData = () => {
+    if (volumeTimeframe === 'semana') {
+      const weeks = [];
+      const today = new Date();
+      for (let i = 7; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(today.getDate() - (i * 7));
+        const startStr = getStartOfWeek(d);
+        weeks.push({
+          startStr,
+          label: (() => {
+            const start = new Date(startStr + 'T00:00:00');
+            const end = new Date(startStr + 'T00:00:00');
+            end.setDate(start.getDate() + 6);
+            return `${start.getDate()}/${start.getMonth() + 1}`;
+          })(),
+          distance: 0,
+          runsCount: 0
+        });
+      }
+      runningWorkouts.forEach(w => {
+        const wStart = getStartOfWeek(new Date(w.date + 'T00:00:00'));
+        const match = weeks.find(wk => wk.startStr === wStart);
+        if (match) {
+          match.distance += Number(w.distance) || 0;
+          match.runsCount += 1;
+        }
+      });
+      return weeks;
+    } else if (volumeTimeframe === 'mes') {
+      const months = [];
+      const today = new Date();
+      const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+      for (let i = 5; i >= 0; i--) {
+        const d = new Date();
+        d.setMonth(today.getMonth() - i);
+        months.push({
+          year: d.getFullYear(),
+          month: d.getMonth(),
+          label: `${monthNames[d.getMonth()]}`,
+          distance: 0,
+          runsCount: 0
+        });
+      }
+      runningWorkouts.forEach(w => {
+        const wDate = new Date(w.date + 'T00:00:00');
+        const match = months.find(m => m.year === wDate.getFullYear() && m.month === wDate.getMonth());
+        if (match) {
+          match.distance += Number(w.distance) || 0;
+          match.runsCount += 1;
+        }
+      });
+      return months;
+    } else {
+      const years = [];
+      const today = new Date();
+      for (let i = 2; i >= 0; i--) {
+        const yr = today.getFullYear() - i;
+        years.push({
+          year: yr,
+          label: `${yr}`,
+          distance: 0,
+          runsCount: 0
+        });
+      }
+      runningWorkouts.forEach(w => {
+        const wDate = new Date(w.date + 'T00:00:00');
+        const match = years.find(y => y.year === wDate.getFullYear());
+        if (match) {
+          match.distance += Number(w.distance) || 0;
+          match.runsCount += 1;
+        }
+      });
+      return years;
+    }
+  };
+
+  const volumePeriods = getVolumeData();
+  const volumeLabels = volumePeriods.map(p => p.label);
+  const volumeValues = volumePeriods.map(p => Math.round(p.distance * 10) / 10);
+
+  // Compute Benchmark target value for each period
+  const getBenchmarkValues = () => {
+    return volumePeriods.map((p, idx) => {
+      if (volumeBenchmark === 'prev-period') {
+        if (idx === 0) return 0;
+        return Math.round(volumePeriods[idx - 1].distance * 10) / 10;
+      }
+      if (volumeBenchmark === 'personal-goal') {
+        if (volumeTimeframe === 'semana') return weeklyGoal;
+        if (volumeTimeframe === 'mes') return monthlyGoal;
+        return yearlyGoal;
+      }
+      // Fixed benchmarks
+      if (volumeTimeframe === 'semana') {
+        if (volumeBenchmark === 'amateur') return 20;
+        if (volumeBenchmark === 'boston') return 60;
+        return 100; // elite
+      } else if (volumeTimeframe === 'mes') {
+        if (volumeBenchmark === 'amateur') return 80;
+        if (volumeBenchmark === 'boston') return 250;
+        return 400; // elite
+      } else {
+        if (volumeBenchmark === 'amateur') return 1000;
+        if (volumeBenchmark === 'boston') return 3000;
+        return 5000; // elite
+      }
+    });
+  };
+
+  const benchmarkValues = getBenchmarkValues();
+
+  // Active period stats
+  const activePeriodIndex = volumePeriods.length - 1;
+  const activeDistance = activePeriodIndex >= 0 ? volumePeriods[activePeriodIndex].distance : 0;
+  const activeRuns = activePeriodIndex >= 0 ? volumePeriods[activePeriodIndex].runsCount : 0;
+  const activeBenchmark = activePeriodIndex >= 0 ? benchmarkValues[activePeriodIndex] : 0;
+  
+  // Percent change vs benchmark
+  const activeDiffPercent = activeBenchmark > 0 
+    ? Math.round(((activeDistance - activeBenchmark) / activeBenchmark) * 100)
+    : 0;
+
+  // Average per day/month
+  const activeDailyAverage = volumeTimeframe === 'semana' 
+    ? Math.round((activeDistance / 7) * 10) / 10
+    : volumeTimeframe === 'mes'
+      ? Math.round((activeDistance / 30) * 10) / 10
+      : Math.round((activeDistance / 12) * 10) / 10; // per month
+
+  const activePacePerRun = activeRuns > 0
+    ? Math.round((activeDistance / activeRuns) * 10) / 10
+    : 0;
+
+
+
+  const volumeChartData = {
+    labels: volumeLabels,
+    datasets: [
+      {
+        type: 'bar',
+        label: 'Tu Carga (km)',
+        data: volumeValues,
+        backgroundColor: 'rgba(16, 185, 129, 0.35)',
+        borderColor: '#10b981',
+        borderWidth: 2,
+        borderRadius: 5,
+        order: 2
+      },
+      {
+        type: 'line',
+        label: (() => {
+          if (volumeBenchmark === 'prev-period') return 'Período Previo';
+          if (volumeBenchmark === 'personal-goal') return 'Objetivo Personal';
+          if (volumeBenchmark === 'amateur') return 'Benchmark Amateur';
+          if (volumeBenchmark === 'boston') return 'Benchmark Boston';
+          return 'Benchmark Élite';
+        })(),
+        data: benchmarkValues,
+        borderColor: '#a855f7',
+        borderWidth: 2.5,
+        borderDash: [5, 5],
+        pointBackgroundColor: '#a855f7',
+        pointRadius: 3,
+        fill: false,
+        tension: 0.1,
+        order: 1
+      }
+    ]
+  };
+
+  const volumeChartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: 'top',
+        labels: {
+          color: legendColor,
+          font: { family: 'Outfit', size: 11 }
+        }
+      },
+      tooltip: {
+        callbacks: {
+          label: (context) => ` ${context.dataset.label}: ${context.raw} km`
+        }
+      }
+    },
+    scales: {
+      y: {
+        grid: { color: gridColor },
+        ticks: { color: textColor },
+        title: { display: true, text: 'Distancia Acumulada (km)', color: textColor }
+      },
+      x: {
+        grid: { display: false },
+        ticks: { color: textColor }
+      }
+    }
+  };
 
   // --- 1. RUNNING PACE CHART DATA ---
   const runningDates = runningWorkouts.map(w => {
@@ -1030,6 +1608,559 @@ export default function AnalyticsView({ workouts, theme }) {
             </div>
           </section>
 
+          {/* ========================================== */}
+          {/* RUNNING VOLUME ANALYZER & BENCHMARKER CARD */}
+          {/* ========================================== */}
+          <section className="volume-analyzer-section fade-in mb-6" style={{ marginTop: '1.5rem' }}>
+            <div className="glass-card" style={{ padding: '1.75rem', position: 'relative', overflow: 'hidden' }}>
+              <div className="chart-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1.25rem', marginBottom: '1.5rem', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '1rem' }}>
+                <div>
+                  <h3 className="chart-title flex-center" style={{ fontSize: '1.15rem', fontWeight: '800', gap: '6px', color: 'var(--text-primary)' }}>
+                    <Activity size={20} className="running-text" /> 
+                    Comparador y Analizador de Carga (Kilometraje)
+                  </h3>
+                  <span className="text-secondary text-xs">Analiza la progresión de tu volumen y compáralo con tus objetivos o marcas de referencia.</span>
+                </div>
+                
+                {/* Timeframe Controls */}
+                <div style={{ display: 'flex', gap: '6px', background: 'rgba(0, 0, 0, 0.2)', padding: '4px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.04)' }}>
+                  <button
+                    type="button"
+                    onClick={() => setVolumeTimeframe('semana')}
+                    className={`time-badge-btn ${volumeTimeframe === 'semana' ? 'active-running' : ''}`}
+                    style={{
+                      padding: '4px 12px',
+                      fontSize: '0.78rem',
+                      fontWeight: '600',
+                      borderRadius: '6px',
+                      border: 'none',
+                      background: volumeTimeframe === 'semana' ? 'var(--color-running)' : 'transparent',
+                      color: volumeTimeframe === 'semana' ? '#000' : 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    Semanal
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setVolumeTimeframe('mes')}
+                    className={`time-badge-btn ${volumeTimeframe === 'mes' ? 'active-running' : ''}`}
+                    style={{
+                      padding: '4px 12px',
+                      fontSize: '0.78rem',
+                      fontWeight: '600',
+                      borderRadius: '6px',
+                      border: 'none',
+                      background: volumeTimeframe === 'mes' ? 'var(--color-running)' : 'transparent',
+                      color: volumeTimeframe === 'mes' ? '#000' : 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    Mensual
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setVolumeTimeframe('año')}
+                    className={`time-badge-btn ${volumeTimeframe === 'año' ? 'active-running' : ''}`}
+                    style={{
+                      padding: '4px 12px',
+                      fontSize: '0.78rem',
+                      fontWeight: '600',
+                      borderRadius: '6px',
+                      border: 'none',
+                      background: volumeTimeframe === 'año' ? 'var(--color-running)' : 'transparent',
+                      color: volumeTimeframe === 'año' ? '#000' : 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    Anual
+                  </button>
+                </div>
+              </div>
+
+              {/* Benchmarking controls & dynamically customized goal input */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem', marginBottom: '1.5rem', alignItems: 'center' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label className="toolbar-label" style={{ fontSize: '0.7rem' }}>Comparar tu volumen contra:</label>
+                  <select
+                    value={volumeBenchmark}
+                    onChange={(e) => setVolumeBenchmark(e.target.value)}
+                    className="toolbar-select"
+                    style={{ padding: '0.6rem 0.85rem', fontSize: '0.85rem' }}
+                  >
+                    <option value="prev-period">🔄 Período Previo (Semana/Mes/Año anterior)</option>
+                    <option value="personal-goal">🎯 Objetivo Personal de Carga</option>
+                    <option value="amateur">🏃 Corredor Amateur (20 km/sem)</option>
+                    <option value="boston">⚡ Benchmark Maratonista Boston (60 km/sem)</option>
+                    <option value="elite">👑 Benchmark Corredor Élite / Ultramaratón (100 km/sem)</option>
+                  </select>
+                </div>
+
+                {volumeBenchmark === 'personal-goal' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label className="toolbar-label" style={{ fontSize: '0.7rem' }}>
+                      Definir Objetivo {volumeTimeframe === 'semana' ? 'Semanal' : volumeTimeframe === 'mes' ? 'Mensual' : 'Anual'} (km):
+                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <input
+                        type="number"
+                        min="1"
+                        value={volumeTimeframe === 'semana' ? weeklyGoal : volumeTimeframe === 'mes' ? monthlyGoal : yearlyGoal}
+                        onChange={(e) => {
+                          const val = Number(e.target.value) || 0;
+                          if (volumeTimeframe === 'semana') {
+                            setWeeklyGoal(val);
+                            localStorage.setItem('fitanalytics_weekly_km_goal', val.toString());
+                          } else if (volumeTimeframe === 'mes') {
+                            setMonthlyGoal(val);
+                            localStorage.setItem('fitanalytics_monthly_km_goal', val.toString());
+                          } else {
+                            setYearlyGoal(val);
+                            localStorage.setItem('fitanalytics_yearly_km_goal', val.toString());
+                          }
+                        }}
+                        className="toolbar-input"
+                        style={{ maxWidth: '120px', padding: '0.55rem 0.85rem' }}
+                      />
+                      <span className="text-secondary text-sm">km</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Main Content Layout */}
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.75rem', alignItems: 'stretch' }} className="volume-grid-layout">
+                {/* Left Side: The Mixed Chart */}
+                <div style={{ background: 'rgba(0,0,0,0.12)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.03)', padding: '1rem', position: 'relative', minHeight: '330px' }}>
+                  {runningWorkouts.length === 0 ? (
+                    <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                      Registra tu primer entrenamiento de running para comenzar a trazar las estadísticas.
+                    </div>
+                  ) : (
+                    <Bar data={volumeChartData} options={volumeChartOptions} />
+                  )}
+                </div>
+
+                {/* Right Side: Scientific statistics details */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', justifyContent: 'space-between' }}>
+                  <div className="glass-card" style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.04)', padding: '1.25rem', borderRadius: '12px', flex: 1, display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    <div>
+                      <span className="toolbar-label" style={{ fontSize: '0.68rem', display: 'block', marginBottom: '4px' }}>
+                        Carga en el período activo
+                      </span>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+                        <span style={{ fontSize: '2.1rem', fontWeight: 900, color: 'var(--color-running)', lineHeight: 1 }}>
+                          {activeDistance.toFixed(1)}
+                        </span>
+                        <span style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                          km totales
+                        </span>
+                      </div>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                        {activeRuns} corridas registradas en este bloque
+                      </span>
+                    </div>
+
+                    {/* Benchmark Deviation Badge */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '0.85rem' }}>
+                      <span className="toolbar-label" style={{ fontSize: '0.68rem' }}>Desviación vs. Referencia</span>
+                      {activeBenchmark > 0 ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
+                          <span style={{
+                            fontSize: '0.85rem',
+                            fontWeight: '800',
+                            borderRadius: '6px',
+                            padding: '3px 8px',
+                            background: activeDiffPercent >= 0 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                            color: activeDiffPercent >= 0 ? '#10b981' : '#f87171',
+                            border: activeDiffPercent >= 0 ? '1px solid rgba(16, 185, 129, 0.2)' : '1px solid rgba(239, 68, 68, 0.2)'
+                          }}>
+                            {activeDiffPercent >= 0 ? `▲ +${activeDiffPercent}%` : `▼ ${activeDiffPercent}%`}
+                          </span>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                            {activeDiffPercent >= 0 
+                              ? '¡Superaste el objetivo de volumen!' 
+                              : 'Por debajo del volumen de referencia'}
+                          </span>
+                        </div>
+                      ) : (
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Sin referencia anterior disponible</span>
+                      )}
+                    </div>
+
+                    {/* Scientific summaries / day average */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '0.85rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>
+                          {volumeTimeframe === 'año' ? 'Promedio mensual:' : 'Promedio diario:'}
+                        </span>
+                        <strong style={{ color: 'var(--text-primary)' }}>
+                          {activeDailyAverage} km / {volumeTimeframe === 'año' ? 'mes' : 'día'}
+                        </strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Promedio por corrida:</span>
+                        <strong style={{ color: 'var(--text-primary)' }}>{activePacePerRun} km</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Scientific training advice */}
+                  <div style={{
+                    borderLeft: '3px solid var(--color-running)',
+                    background: 'rgba(16, 185, 129, 0.03)',
+                    padding: '0.85rem 1rem',
+                    borderRadius: '4px 8px 8px 4px',
+                    fontSize: '0.72rem',
+                    lineHeight: '1.35',
+                    color: 'var(--text-secondary)'
+                  }}>
+                    <strong>💡 Consejo Fisiológico:</strong>
+                    {volumeTimeframe === 'semana' ? (
+                      ' Trata de no incrementar tu volumen semanal total más de un 10% de semana a semana para mitigar el riesgo de lesiones de tendón de Aquiles y fascitis plantar.'
+                    ) : (
+                      ' Los bloques de gran volumen aeróbico consolidan tu base cardiovascular. El 80% de tus corridas mensuales deben transcurrir en tu Zona 2 aeróbica.'
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* ========================================== */}
+          {/* DETAILED DAY-BY-DAY RUNNING COMPARATOR CARD */}
+          {/* ========================================== */}
+          <section className="volume-comparator-section fade-in mb-6" style={{ marginTop: '1.5rem' }}>
+            <div className="glass-card" style={{ padding: '1.75rem', position: 'relative', overflow: 'hidden' }}>
+              <div className="chart-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1.25rem', marginBottom: '1.5rem', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '1rem' }}>
+                <div>
+                  <h3 className="chart-title flex-center" style={{ fontSize: '1.15rem', fontWeight: '800', gap: '6px', color: 'var(--text-primary)' }}>
+                    <Activity size={20} className="running-text" /> 
+                    Comparador Detallado de Períodos y Distribución Diaria
+                  </h3>
+                  <span className="text-secondary text-xs">Compara día a día cómo distribuiste tus kilómetros en dos semanas o meses sucesivos.</span>
+                </div>
+                
+                {/* Timeframe Controls */}
+                <div style={{ display: 'flex', gap: '6px', background: 'rgba(0, 0, 0, 0.2)', padding: '4px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.04)' }}>
+                  <button
+                    type="button"
+                    onClick={() => handleCompTimeframeChange('semana')}
+                    className={`time-badge-btn ${compTimeframe === 'semana' ? 'active-running' : ''}`}
+                    style={{
+                      padding: '4px 12px',
+                      fontSize: '0.78rem',
+                      fontWeight: '600',
+                      borderRadius: '6px',
+                      border: 'none',
+                      background: compTimeframe === 'semana' ? 'var(--color-running)' : 'transparent',
+                      color: compTimeframe === 'semana' ? '#000' : 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    Semanal
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleCompTimeframeChange('mes')}
+                    className={`time-badge-btn ${compTimeframe === 'mes' ? 'active-running' : ''}`}
+                    style={{
+                      padding: '4px 12px',
+                      fontSize: '0.78rem',
+                      fontWeight: '600',
+                      borderRadius: '6px',
+                      border: 'none',
+                      background: compTimeframe === 'mes' ? 'var(--color-running)' : 'transparent',
+                      color: compTimeframe === 'mes' ? '#000' : 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    Mensual
+                  </button>
+                </div>
+              </div>
+
+              {/* Selection inputs */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.25rem', marginBottom: '1.5rem', alignItems: 'center' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label className="toolbar-label" style={{ fontSize: '0.7rem' }}>Seleccionar Período A (Principal):</label>
+                  <select
+                    value={selectedPeriodA}
+                    onChange={(e) => setSelectedPeriodA(e.target.value)}
+                    className="toolbar-select"
+                    style={{ padding: '0.6rem 0.85rem', fontSize: '0.85rem' }}
+                  >
+                    {compTimeframe === 'semana'
+                      ? availableWeeks.map(wk => <option key={wk.value} value={wk.value}>{wk.label}</option>)
+                      : availableMonths.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label className="toolbar-label" style={{ fontSize: '0.7rem' }}>Seleccionar Período B (Comparación):</label>
+                  <select
+                    value={selectedPeriodB}
+                    onChange={(e) => setSelectedPeriodB(e.target.value)}
+                    className="toolbar-select"
+                    style={{ padding: '0.6rem 0.85rem', fontSize: '0.85rem' }}
+                  >
+                    {compTimeframe === 'semana'
+                      ? availableWeeks.map(wk => <option key={wk.value} value={wk.value}>{wk.label}</option>)
+                      : availableMonths.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* Comparative Summary KPIs */}
+              <div className="comp-kpis-grid" style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                gap: '1rem',
+                marginBottom: '1.5rem'
+              }}>
+                {/* KPI 1: Kilómetros Totales */}
+                <div className="comp-kpi-card glass-card" style={{
+                  background: 'rgba(255,255,255,0.01)',
+                  border: '1px solid rgba(255,255,255,0.04)',
+                  borderRadius: '12px',
+                  padding: '1rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px'
+                }}>
+                  <span style={{ fontSize: '0.68rem', textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: '700', letterSpacing: '0.05em' }}>Distancia Total</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '4px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontSize: '1.1rem', fontWeight: '900', color: '#10b981' }}>{statsA.totalDist} <span style={{ fontSize: '0.75rem', fontWeight: '500' }}>km</span></span>
+                      <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)' }}>Período A</span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                      <span style={{ fontSize: '1.1rem', fontWeight: '900', color: '#3b82f6' }}>{statsB.totalDist} <span style={{ fontSize: '0.75rem', fontWeight: '500' }}>km</span></span>
+                      <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)' }}>Período B</span>
+                    </div>
+                  </div>
+                  <div style={{
+                    borderTop: '1px dashed rgba(255,255,255,0.05)',
+                    paddingTop: '6px',
+                    marginTop: '2px',
+                    fontSize: '0.7rem',
+                    textAlign: 'center',
+                    color: (statsA.totalDist - statsB.totalDist) >= 0 ? '#10b981' : '#f87171',
+                    fontWeight: '700'
+                  }}>
+                    { (statsA.totalDist - statsB.totalDist) >= 0 
+                      ? `▲ +${(statsA.totalDist - statsB.totalDist).toFixed(1)} km` 
+                      : `▼ ${(statsA.totalDist - statsB.totalDist).toFixed(1)} km`
+                    }
+                  </div>
+                </div>
+
+                {/* KPI 2: Ritmo Promedio */}
+                <div className="comp-kpi-card glass-card" style={{
+                  background: 'rgba(255,255,255,0.01)',
+                  border: '1px solid rgba(255,255,255,0.04)',
+                  borderRadius: '12px',
+                  padding: '1rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px'
+                }}>
+                  <span style={{ fontSize: '0.68rem', textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: '700', letterSpacing: '0.05em' }}>Ritmo Promedio</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '4px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontSize: '1.1rem', fontWeight: '900', color: '#10b981' }}>{statsA.avgPaceStr} <span style={{ fontSize: '0.75rem', fontWeight: '500' }}>/km</span></span>
+                      <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)' }}>Período A</span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                      <span style={{ fontSize: '1.1rem', fontWeight: '900', color: '#3b82f6' }}>{statsB.avgPaceStr} <span style={{ fontSize: '0.75rem', fontWeight: '500' }}>/km</span></span>
+                      <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)' }}>Período B</span>
+                    </div>
+                  </div>
+                  <div style={{
+                    borderTop: '1px dashed rgba(255,255,255,0.05)',
+                    paddingTop: '6px',
+                    marginTop: '2px',
+                    fontSize: '0.7rem',
+                    textAlign: 'center',
+                    color: 'var(--text-muted)',
+                    fontWeight: '600'
+                  }}>
+                    ⏱️ Comparación de Ritmos
+                  </div>
+                </div>
+
+                {/* KPI 3: Tiempo Entrenando */}
+                <div className="comp-kpi-card glass-card" style={{
+                  background: 'rgba(255,255,255,0.01)',
+                  border: '1px solid rgba(255,255,255,0.04)',
+                  borderRadius: '12px',
+                  padding: '1rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px'
+                }}>
+                  <span style={{ fontSize: '0.68rem', textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: '700', letterSpacing: '0.05em' }}>Tiempo Total</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '4px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontSize: '1.1rem', fontWeight: '900', color: '#10b981' }}>{statsA.totalDurationStr}</span>
+                      <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)' }}>Período A</span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                      <span style={{ fontSize: '1.1rem', fontWeight: '900', color: '#3b82f6' }}>{statsB.totalDurationStr}</span>
+                      <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)' }}>Período B</span>
+                    </div>
+                  </div>
+                  <div style={{
+                    borderTop: '1px dashed rgba(255,255,255,0.05)',
+                    paddingTop: '6px',
+                    marginTop: '2px',
+                    fontSize: '0.7rem',
+                    textAlign: 'center',
+                    color: 'var(--text-muted)',
+                    fontWeight: '600'
+                  }}>
+                    🕒 Tiempo de Trabajo
+                  </div>
+                </div>
+
+                {/* KPI 4: Velocidad Media */}
+                <div className="comp-kpi-card glass-card" style={{
+                  background: 'rgba(255,255,255,0.01)',
+                  border: '1px solid rgba(255,255,255,0.04)',
+                  borderRadius: '12px',
+                  padding: '1rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px'
+                }}>
+                  <span style={{ fontSize: '0.68rem', textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: '700', letterSpacing: '0.05em' }}>Velocidad Media</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '4px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontSize: '1.1rem', fontWeight: '900', color: '#10b981' }}>{statsA.avgSpeed} <span style={{ fontSize: '0.75rem', fontWeight: '500' }}>km/h</span></span>
+                      <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)' }}>Período A</span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                      <span style={{ fontSize: '1.1rem', fontWeight: '900', color: '#3b82f6' }}>{statsB.avgSpeed} <span style={{ fontSize: '0.75rem', fontWeight: '500' }}>km/h</span></span>
+                      <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)' }}>Período B</span>
+                    </div>
+                  </div>
+                  <div style={{
+                    borderTop: '1px dashed rgba(255,255,255,0.05)',
+                    paddingTop: '6px',
+                    marginTop: '2px',
+                    fontSize: '0.7rem',
+                    textAlign: 'center',
+                    color: (statsA.avgSpeed - statsB.avgSpeed) >= 0 ? '#10b981' : '#f87171',
+                    fontWeight: '700'
+                  }}>
+                    { (statsA.avgSpeed - statsB.avgSpeed) >= 0 
+                      ? `▲ +${(statsA.avgSpeed - statsB.avgSpeed).toFixed(1)} km/h` 
+                      : `▼ ${(statsA.avgSpeed - statsB.avgSpeed).toFixed(1)} km/h`
+                    }
+                  </div>
+                </div>
+
+                {/* KPI 5: Cantidad de Actividades */}
+                <div className="comp-kpi-card glass-card" style={{
+                  background: 'rgba(255,255,255,0.01)',
+                  border: '1px solid rgba(255,255,255,0.04)',
+                  borderRadius: '12px',
+                  padding: '1rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px'
+                }}>
+                  <span style={{ fontSize: '0.68rem', textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: '700', letterSpacing: '0.05em' }}>Actividades</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '4px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontSize: '1.1rem', fontWeight: '900', color: '#10b981' }}>{statsA.activitiesCount} <span style={{ fontSize: '0.75rem', fontWeight: '500' }}>runs</span></span>
+                      <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)' }}>Período A</span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                      <span style={{ fontSize: '1.1rem', fontWeight: '900', color: '#3b82f6' }}>{statsB.activitiesCount} <span style={{ fontSize: '0.75rem', fontWeight: '500' }}>runs</span></span>
+                      <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)' }}>Período B</span>
+                    </div>
+                  </div>
+                  <div style={{
+                    borderTop: '1px dashed rgba(255,255,255,0.05)',
+                    paddingTop: '6px',
+                    marginTop: '2px',
+                    fontSize: '0.7rem',
+                    textAlign: 'center',
+                    color: (statsA.activitiesCount - statsB.activitiesCount) >= 0 ? '#10b981' : '#f87171',
+                    fontWeight: '700'
+                  }}>
+                    { (statsA.activitiesCount - statsB.activitiesCount) >= 0 
+                      ? `▲ +${statsA.activitiesCount - statsB.activitiesCount} runs` 
+                      : `▼ ${statsA.activitiesCount - statsB.activitiesCount} runs`
+                    }
+                  </div>
+                </div>
+              </div>
+
+              {/* Main content grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.75rem', alignItems: 'stretch' }} className="volume-grid-layout">
+                {/* Left Column: Line Chart Overlay */}
+                <div style={{ background: 'rgba(0,0,0,0.12)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.03)', padding: '1rem', position: 'relative', minHeight: '330px' }}>
+                  {runningWorkouts.length === 0 ? (
+                    <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                      Registra corridas para ver la distribución diaria.
+                    </div>
+                  ) : (
+                    <Line data={compChartData} options={compChartOptions} />
+                  )}
+                </div>
+
+                {/* Right Column: Comparative List/KPIs */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }} className="volume-grid-layout">
+                  <div className="glass-card custom-exercise-dropdown" style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.04)', padding: '1.25rem', borderRadius: '12px', flex: 1, display: 'flex', flexDirection: 'column', maxHeight: '330px', overflowY: 'auto' }}>
+                    <span className="toolbar-label" style={{ fontSize: '0.7rem', display: 'block', marginBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '4px' }}>
+                      Desglose Comparativo por Día
+                    </span>
+                    
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {comparisonLabels.map((dayLabel, idx) => {
+                        const valA = comparisonData.distA[idx] || 0;
+                        const valB = comparisonData.distB[idx] || 0;
+                        if (compTimeframe === 'mes' && valA === 0 && valB === 0) return null; // hide empty days in monthly view for neatness
+                        
+                        const diff = valA - valB;
+                        
+                        return (
+                          <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', borderRadius: '6px', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.02)' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                              <span style={{ fontSize: '0.78rem', fontWeight: '600', color: 'var(--text-primary)' }}>{dayLabel}</span>
+                              <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                                {activeLabelA.split(' ')[0]}: <strong>{valA}k</strong> vs {activeLabelB.split(' ')[0]}: <strong>{valB}k</strong>
+                              </span>
+                            </div>
+                            
+                            {diff !== 0 ? (
+                              <span style={{
+                                fontSize: '0.72rem',
+                                fontWeight: '700',
+                                color: diff > 0 ? '#10b981' : '#f87171'
+                              }}>
+                                {diff > 0 ? `+${diff.toFixed(1)}k` : `${diff.toFixed(1)}k`}
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>=</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
           <div className="analytics-grid">
           
           {/* Chart 1: Running Pace (Min/Km) */}
@@ -1191,6 +2322,67 @@ export default function AnalyticsView({ workouts, theme }) {
       )}
 
       <style>{`
+        .toolbar-select {
+          width: 100%;
+          padding: 0.6rem 2.2rem 0.6rem 1rem;
+          background: rgba(9, 10, 15, 0.7) !important;
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+          border: 1px solid rgba(255, 255, 255, 0.08) !important;
+          border-radius: 10px;
+          color: var(--text-primary) !important;
+          font-family: var(--font-sans);
+          font-size: 0.85rem;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all var(--transition-fast);
+          appearance: none !important;
+          -webkit-appearance: none !important;
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='rgba(255,255,255,0.6)' stroke-width='2.5'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19.5 8.25l-7.5 7.5-7.5-7.5'%3E%3C/path%3E%3C/svg%3E") !important;
+          background-repeat: no-repeat !important;
+          background-position: right 0.75rem center !important;
+          background-size: 0.85rem !important;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+
+        .toolbar-select:hover {
+          border-color: rgba(16, 185, 129, 0.4) !important;
+          background-color: rgba(9, 10, 15, 0.85) !important;
+          box-shadow: 0 4px 15px rgba(16, 185, 129, 0.15);
+        }
+
+        .toolbar-select:focus {
+          outline: none;
+          border-color: #10b981 !important;
+          box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2) !important;
+          background-color: rgba(9, 10, 15, 0.95) !important;
+        }
+
+        .theme-light .toolbar-select {
+          background-color: rgba(255, 255, 255, 0.9) !important;
+          border-color: rgba(15, 23, 42, 0.12) !important;
+          color: #1e293b !important;
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='rgba(15,23,42,0.6)' stroke-width='2.5'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19.5 8.25l-7.5 7.5-7.5-7.5'%3E%3C/path%3E%3C/svg%3E") !important;
+          box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
+        }
+
+        .theme-light .toolbar-select:hover {
+          border-color: rgba(16, 185, 129, 0.5) !important;
+          background-color: #ffffff !important;
+          box-shadow: 0 4px 15px rgba(16, 185, 129, 0.15);
+        }
+
+        .theme-light .toolbar-select:focus {
+          border-color: #10b981 !important;
+          box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2) !important;
+        }
+
+        @media (max-width: 900px) {
+          .volume-grid-layout {
+            grid-template-columns: 1fr !important;
+          }
+        }
+
         .analytics-container {
           display: flex;
           flex-direction: column;

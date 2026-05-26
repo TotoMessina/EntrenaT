@@ -29,7 +29,14 @@ import { calculateAchievements, getAdvancedAthleticStats } from '../utils/achiev
  * @param {Object} profile Datos del deportista en localStorage.
  * @param {Function} onProfileChange Callback para propagar los cambios del perfil a App.jsx y localStorage.
  */
-export default function AchievementsView({ workouts, profile, onProfileChange }) {
+export default function AchievementsView({ 
+  workouts, 
+  profile, 
+  onProfileChange, 
+  setShowConfetti, 
+  onSaveWorkout, 
+  setActiveToast 
+}) {
   // Calculamos los logros y estadísticas basados en la prop reactiva del perfil
   const achievements = calculateAchievements(workouts, profile);
   const advancedStats = getAdvancedAthleticStats(workouts, profile);
@@ -46,6 +53,38 @@ export default function AchievementsView({ workouts, profile, onProfileChange })
 
   // Estados del Formulario de Perfil Deportivo
   const [isEditing, setIsEditing] = useState(false);
+
+  const handleShareAchievement = async (medal) => {
+    if (setShowConfetti) {
+      setShowConfetti(false);
+      setTimeout(() => setShowConfetti(true), 50);
+    }
+    
+    const todayStr = new Date().toISOString().split('T')[0];
+    const sharePost = {
+      id: `achievement-${medal.id}-${Date.now()}`,
+      type: 'running',
+      date: todayStr,
+      distance: 0,
+      duration: '00:00:00',
+      terrain: 'Pista',
+      rpe: 10,
+      notes: `🏅 ¡Logro Desbloqueado: ${medal.title}! (${medal.subtitle}) ${medal.description} Marca alcanzada: ${medal.currentValue}. ¿Cómo viene su semana de entrenamientos, equipo? ⚡🏃‍♂️💪`
+    };
+    
+    if (onSaveWorkout) {
+      const res = await onSaveWorkout(sharePost);
+      if (res?.success) {
+        if (setActiveToast) {
+          setActiveToast({
+            title: '¡Logro Compartido!',
+            message: `Publicaste tu medalla de "${medal.title}" en el feed social con éxito.`,
+            type: 'success'
+          });
+        }
+      }
+    }
+  };
   const [formData, setFormData] = useState({
     displayName: profile?.displayName || '',
     username: profile?.username || '',
@@ -587,6 +626,33 @@ export default function AchievementsView({ workouts, profile, onProfileChange })
                     </span>
                   )}
                 </div>
+
+                {isUnlocked && (
+                  <button
+                    onClick={() => handleShareAchievement(medal)}
+                    className="share-achievement-btn animate-fade-in"
+                    style={{
+                      width: '100%',
+                      marginTop: '0.85rem',
+                      padding: '0.55rem',
+                      borderRadius: '8px',
+                      background: 'rgba(139, 92, 246, 0.12)',
+                      border: '1px solid rgba(139, 92, 246, 0.3)',
+                      color: 'var(--color-primary)',
+                      fontSize: '0.75rem',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.35rem',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    <Sparkles size={14} className="sparkle-icon" />
+                    <span>Compartir en Comunidad</span>
+                  </button>
+                )}
               </div>
             </div>
           );
@@ -595,6 +661,16 @@ export default function AchievementsView({ workouts, profile, onProfileChange })
 
       {/* COMPONENT STYLES */}
       <style>{`
+        .share-achievement-btn:hover {
+          background: rgba(139, 92, 246, 0.22) !important;
+          border-color: rgba(139, 92, 246, 0.5) !important;
+          color: #fff !important;
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(139, 92, 246, 0.2);
+        }
+        .share-achievement-btn:active {
+          transform: translateY(0) scale(0.97);
+        }
         .achievements-view-container {
           display: flex;
           flex-direction: column;

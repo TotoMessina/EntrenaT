@@ -149,6 +149,9 @@ export default function App() {
             workouts={workouts}
             profile={profile}
             onProfileChange={handleProfileChange}
+            setShowConfetti={setShowConfetti}
+            onSaveWorkout={handleSaveWorkout}
+            setActiveToast={setActiveToast}
           />
         );
       case 'social':

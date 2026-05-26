@@ -1081,7 +1081,7 @@ export default function DataManager({
                                   <div className="preview-exercises-list text-2xs text-muted mt-1" style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                                     {w.exercises?.map((ex, exIdx) => (
                                       <span key={exIdx} className="preview-exercise-item" style={{ background: 'rgba(255,255,255,0.03)', padding: '0.1rem 0.35rem', borderRadius: '4px', border: '1px solid var(--border-light)' }}>
-                                        🏋️ {ex.name}: {ex.sets}x{ex.reps} @ {ex.weight}kg
+                                        🏋️ {ex.name}: {Array.isArray(ex.sets) ? ex.sets.length : ex.sets}x{Array.isArray(ex.sets) ? (ex.sets[0]?.reps || 0) : ex.reps} @ {Array.isArray(ex.sets) ? (ex.sets[0]?.weight || 0) : ex.weight}kg
                                       </span>
                                     ))}
                                   </div>

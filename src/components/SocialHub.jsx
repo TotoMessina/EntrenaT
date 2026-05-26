@@ -522,7 +522,7 @@ export default function SocialHub({
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
                           {item.exercises.map((ex, idx) => (
                             <span key={idx} style={{ fontSize: '0.7rem', background: 'rgba(255,255,255,0.03)', padding: '3px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)', color: '#fff', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                              <strong>{ex.name}</strong> • {ex.sets}x{ex.reps} {ex.weight ? <span style={{ color: 'var(--color-primary)' }}>({ex.weight}kg)</span> : ''}
+                              <strong>{ex.name}</strong> • {Array.isArray(ex.sets) ? ex.sets.length : ex.sets}x{Array.isArray(ex.sets) ? (ex.sets[0]?.reps || 0) : ex.reps} {(Array.isArray(ex.sets) ? ex.sets[0]?.weight : ex.weight) ? <span style={{ color: 'var(--color-primary)' }}>({Array.isArray(ex.sets) ? ex.sets[0]?.weight : ex.weight}kg)</span> : ''}
                             </span>
                           ))}
                         </div>
@@ -1187,7 +1187,7 @@ export default function SocialHub({
                               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginTop: '2px' }}>
                                 {workout.exercises.map((ex, idx) => (
                                   <span key={idx} style={{ fontSize: '0.65rem', background: 'rgba(255,255,255,0.03)', padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.05)', color: 'var(--text-muted)' }}>
-                                    {ex.name}: {ex.sets}x{ex.reps} {ex.weight ? `(${ex.weight}kg)` : ''}
+                                    {ex.name}: {Array.isArray(ex.sets) ? ex.sets.length : ex.sets}x{Array.isArray(ex.sets) ? (ex.sets[0]?.reps || 0) : ex.reps} {(Array.isArray(ex.sets) ? ex.sets[0]?.weight : ex.weight) ? `(${Array.isArray(ex.sets) ? ex.sets[0]?.weight : ex.weight}kg)` : ''}
                                   </span>
                                 ))}
                               </div>

@@ -22,20 +22,155 @@ import { compressGpxData, decompressGpxData } from '../utils/gpxCompressor';
 import { timeStringToSeconds, secondsToTimeString } from '../utils/calculators';
 
 
-const EXERCISE_SUGGESTIONS = {
-  'Pectoral': ['Press de Banca', 'Press Inclinado con Mancuernas', 'Aperturas en Polea', 'Fondos en Paralelas', 'Lagartijas (Push-ups)'],
-  'Espalda': ['Dominadas', 'Remo con Barra', 'Jalón al Pecho', 'Remo en Polea Baja', 'Hiperextensiones'],
-  'Hombros': ['Press Militar con Barra', 'Elevaciones Laterales', 'Press Arnold', 'Pájaros (Vuelos Posteriores)'],
-  'Bíceps': ['Curl de Bíceps con Barra', 'Curl de Bíceps Martillo', 'Curl Concentrado', 'Curl en Banco Scott'],
-  'Tríceps': ['Fondos de Tríceps', 'Extensiones en Polea Alta', 'Press Francés', 'Copa de Tríceps'],
-  'Antebrazo': ['Curl de Muñeca Pronado', 'Curl de Muñeca Supinado', 'Paseo del Granjero', 'Cuelgue Pasivo'],
-  'Core': ['Plancha Abdominal (Plank)', 'Crunch en Polea', 'Elevación de Piernas Colgado', 'Giros Rusos (Russian Twists)'],
-  'Cuádriceps': ['Sentadilla Trasera con Barra', 'Prensa de Piernas', 'Desplantes (Lunges)', 'Extensión de Cuádriceps'],
-  'Isquiotibiales': ['Peso Muerto Rumano', 'Curl de Pierna Sentado', 'Curl de Pierna Acostado', 'Peso Muerto'],
-  'Gemelos': ['Elevación de Talones de Pie', 'Elevación de Talones Sentado'],
-  'Glúteos': ['Hip Thrust', 'Puente de Glúteos', 'Patada de Glúteo'],
-  'Cuello': ['Encogimientos de Hombros', 'Cuello con Arnés', 'Puente de Cuello']
-};
+const EXERCISE_DATABASE = [
+  // Pectoral
+  { name: 'Press de Banca', primary: 'Pectoral', secondary: ['Tríceps', 'Hombros'] },
+  { name: 'Press Inclinado con Mancuernas', primary: 'Pectoral', secondary: ['Tríceps', 'Hombros'] },
+  { name: 'Aperturas en Polea', primary: 'Pectoral', secondary: [] },
+  { name: 'Fondos en Paralelas', primary: 'Pectoral', secondary: ['Tríceps', 'Hombros'] },
+  { name: 'Lagartijas (Push-ups)', primary: 'Pectoral', secondary: ['Tríceps', 'Core'] },
+  { name: 'Press de Banca con Mancuernas', primary: 'Pectoral', secondary: ['Tríceps', 'Hombros'] },
+  { name: 'Cruce de Poleas Altas', primary: 'Pectoral', secondary: [] },
+  { name: 'Aperturas Inclinadas con Mancuerna', primary: 'Pectoral', secondary: [] },
+  { name: 'Press de Pecho en Máquina Hammer', primary: 'Pectoral', secondary: ['Tríceps'] },
+  { name: 'Press Declinado con Barra', primary: 'Pectoral', secondary: ['Tríceps', 'Hombros'] },
+  { name: 'Flexiones con Manos Juntas (Diamond Push-ups)', primary: 'Pectoral', secondary: ['Tríceps', 'Core'] },
+  { name: 'Pull-over con Mancuerna', primary: 'Pectoral', secondary: ['Espalda', 'Tríceps'] },
+
+  // Espalda
+  { name: 'Dominadas', primary: 'Espalda', secondary: ['Bíceps', 'Antebrazo', 'Core'] },
+  { name: 'Remo con Barra', primary: 'Espalda', secondary: ['Bíceps', 'Core'] },
+  { name: 'Jalón al Pecho', primary: 'Espalda', secondary: ['Bíceps'] },
+  { name: 'Remo en Polea Baja', primary: 'Espalda', secondary: ['Bíceps'] },
+  { name: 'Hiperextensiones', primary: 'Espalda', secondary: ['Glúteos', 'Isquiotibiales'] },
+  { name: 'Pull-ups Lastradas', primary: 'Espalda', secondary: ['Bíceps', 'Antebrazo', 'Core'] },
+  { name: 'Remo Gironda', primary: 'Espalda', secondary: ['Bíceps'] },
+  { name: 'Remo con Soporte en Pecho', primary: 'Espalda', secondary: ['Bíceps'] },
+  { name: 'Remo Unilateral con Mancuerna', primary: 'Espalda', secondary: ['Bíceps', 'Core'] },
+  { name: 'Pull-over con Polea Alta', primary: 'Espalda', secondary: ['Tríceps'] },
+  { name: 'Remo Pendlay', primary: 'Espalda', secondary: ['Core', 'Isquiotibiales'] },
+  { name: 'Jalón al Pecho con Agarre Neutro (V-Bar)', primary: 'Espalda', secondary: ['Bíceps'] },
+  { name: 'Remo con Barra T', primary: 'Espalda', secondary: ['Bíceps', 'Core'] },
+
+  // Hombros
+  { name: 'Press Militar con Barra', primary: 'Hombros', secondary: ['Tríceps', 'Core'] },
+  { name: 'Elevaciones Laterales', primary: 'Hombros', secondary: [] },
+  { name: 'Press Arnold', primary: 'Hombros', secondary: ['Tríceps'] },
+  { name: 'Pájaros (Vuelos Posteriores)', primary: 'Hombros', secondary: ['Espalda'] },
+  { name: 'Elevaciones Laterales en Polea', primary: 'Hombros', secondary: [] },
+  { name: 'Y-Raises (Elevaciones en Y)', primary: 'Hombros', secondary: ['Espalda'] },
+  { name: 'Face Pulls', primary: 'Hombros', secondary: ['Espalda'] },
+  { name: 'Press Frontal con Mancuernas', primary: 'Hombros', secondary: ['Tríceps'] },
+  { name: 'Elevaciones Posteriores en Máquina (Pec Deck Invertido)', primary: 'Hombros', secondary: ['Espalda'] },
+  { name: 'Elevaciones Frontales con Disco', primary: 'Hombros', secondary: [] },
+  { name: 'Paseo de Hombros (Carrying)', primary: 'Hombros', secondary: ['Antebrazo', 'Core'] },
+
+  // Bíceps
+  { name: 'Curl de Bíceps con Barra', primary: 'Bíceps', secondary: ['Antebrazo'] },
+  { name: 'Curl de Bíceps Martillo', primary: 'Bíceps', secondary: ['Antebrazo'] },
+  { name: 'Curl Concentrado', primary: 'Bíceps', secondary: [] },
+  { name: 'Curl en Banco Scott', primary: 'Bíceps', secondary: [] },
+  { name: 'Curl de Bíceps Inclinado con Mancuernas', primary: 'Bíceps', secondary: [] },
+  { name: 'Curl de Bíceps en Polea', primary: 'Bíceps', secondary: [] },
+  { name: 'Curl de Bíceps de Pie con Mancuernas', primary: 'Bíceps', secondary: ['Antebrazo'] },
+  { name: 'Curl Araña (Spider Curl)', primary: 'Bíceps', secondary: [] },
+  { name: 'Curl de Bíceps Zottman', primary: 'Bíceps', secondary: ['Antebrazo'] },
+  { name: 'Curl de Bíceps 21s', primary: 'Bíceps', secondary: ['Antebrazo'] },
+
+  // Tríceps
+  { name: 'Fondos de Tríceps', primary: 'Tríceps', secondary: ['Pectoral', 'Hombros'] },
+  { name: 'Extensiones en Polea Alta', primary: 'Tríceps', secondary: [] },
+  { name: 'Press Francés', primary: 'Tríceps', secondary: [] },
+  { name: 'Copa de Tríceps', primary: 'Tríceps', secondary: [] },
+  { name: 'Patada de Tríceps en Polea', primary: 'Tríceps', secondary: [] },
+  { name: 'Extensiones Tras la Cabeza con Polea', primary: 'Tríceps', secondary: [] },
+  { name: 'Fondos de Tríceps/Pecho Lastrados', primary: 'Tríceps', secondary: ['Pectoral', 'Hombros'] },
+  { name: 'Press de Banca con Agarre Cerrado', primary: 'Tríceps', secondary: ['Pectoral'] },
+  { name: 'Rompecráneos con Mancuernas', primary: 'Tríceps', secondary: [] },
+  { name: 'Flexiones de Tríceps (Diamond Push-ups)', primary: 'Tríceps', secondary: ['Pectoral', 'Core'] },
+
+  // Antebrazo
+  { name: 'Curl de Muñeca Pronado', primary: 'Antebrazo', secondary: [] },
+  { name: 'Curl de Muñeca Supinado', primary: 'Antebrazo', secondary: [] },
+  { name: 'Paseo del Granjero', primary: 'Antebrazo', secondary: ['Core', 'Espalda', 'Hombros'] },
+  { name: 'Cuelgue Pasivo', primary: 'Antebrazo', secondary: ['Hombros'] },
+  { name: 'Curl de Antebrazo Inverso con Barra', primary: 'Antebrazo', secondary: ['Bíceps'] },
+  { name: 'Rodillo de Muñeca (Wrist Roller)', primary: 'Antebrazo', secondary: [] },
+  { name: 'Flexores de Dedos con Mancuerna', primary: 'Antebrazo', secondary: [] },
+  { name: 'Pinch Grip (Agarre de Placa)', primary: 'Antebrazo', secondary: [] },
+
+  // Core
+  { name: 'Plancha Abdominal (Plank)', primary: 'Core', secondary: ['Hombros', 'Glúteos'] },
+  { name: 'Crunch en Polea', primary: 'Core', secondary: [] },
+  { name: 'Elevación de Piernas Colgado', primary: 'Core', secondary: ['Glúteos'] },
+  { name: 'Giros Rusos (Russian Twists)', primary: 'Core', secondary: [] },
+  { name: 'Ab Wheel Rollouts (Rueda Abdominal)', primary: 'Core', secondary: ['Hombros', 'Tríceps'] },
+  { name: 'Plancha Lateral con Rotación', primary: 'Core', secondary: ['Hombros'] },
+  { name: 'Elevación de Piernas Inclinado', primary: 'Core', secondary: [] },
+  { name: 'Bicho Muerto (Dead Bug)', primary: 'Core', secondary: [] },
+  { name: 'Crunch de Abdomen en Suelo', primary: 'Core', secondary: [] },
+  { name: 'Leñador en Polea (Cable Woodchoppers)', primary: 'Core', secondary: ['Hombros'] },
+  { name: 'Toes to Bar (Pies a la Barra)', primary: 'Core', secondary: ['Antebrazo', 'Espalda'] },
+
+  // Cuádriceps
+  { name: 'Sentadilla Trasera con Barra', primary: 'Cuádriceps', secondary: ['Glúteos', 'Isquiotibiales', 'Core'] },
+  { name: 'Prensa de Piernas', primary: 'Cuádriceps', secondary: ['Glúteos', 'Isquiotibiales'] },
+  { name: 'Desplantes (Lunges)', primary: 'Cuádriceps', secondary: ['Glúteos', 'Isquiotibiales'] },
+  { name: 'Extensión de Cuádriceps', primary: 'Cuádriceps', secondary: [] },
+  { name: 'Sentadilla Hack', primary: 'Cuádriceps', secondary: ['Glúteos', 'Isquiotibiales'] },
+  { name: 'Sentadilla Búlgara con Mancuernas', primary: 'Cuádriceps', secondary: ['Glúteos', 'Isquiotibiales', 'Core'] },
+  { name: 'Goblet Squat (Sentadilla Goblet)', primary: 'Cuádriceps', secondary: ['Glúteos', 'Core'] },
+  { name: 'Leg Extension en Máquina', primary: 'Cuádriceps', secondary: [] },
+  { name: 'Sentadilla Frontal con Barra', primary: 'Cuádriceps', secondary: ['Glúteos', 'Core'] },
+  { name: 'Zancadas Caminando con Mancuernas', primary: 'Cuádriceps', secondary: ['Glúteos', 'Isquiotibiales'] },
+
+  // Isquiotibiales
+  { name: 'Peso Muerto Rumano', primary: 'Isquiotibiales', secondary: ['Glúteos', 'Espalda', 'Core'] },
+  { name: 'Curl de Pierna Sentado', primary: 'Isquiotibiales', secondary: [] },
+  { name: 'Curl de Pierna Acostado', primary: 'Isquiotibiales', secondary: [] },
+  { name: 'Peso Muerto', primary: 'Isquiotibiales', secondary: ['Glúteos', 'Espalda', 'Core', 'Cuádriceps', 'Antebrazo'] },
+  { name: 'Peso Muerto Piernas Rígidas', primary: 'Isquiotibiales', secondary: ['Glúteos', 'Espalda'] },
+  { name: 'Curl de Pierna de Pie', primary: 'Isquiotibiales', secondary: [] },
+  { name: 'Buenos Días con Barra', primary: 'Isquiotibiales', secondary: ['Glúteos', 'Espalda'] },
+  { name: 'Glute-Ham Raise (GHR)', primary: 'Isquiotibiales', secondary: ['Glúteos', 'Gemelos'] },
+  { name: 'Peso Muerto Sumo', primary: 'Isquiotibiales', secondary: ['Glúteos', 'Cuádriceps', 'Espalda', 'Antebrazo'] },
+
+  // Gemelos
+  { name: 'Elevación de Talones de Pie', primary: 'Gemelos', secondary: [] },
+  { name: 'Elevación de Talones Sentado', primary: 'Gemelos', secondary: [] },
+  { name: 'Prensa de Gemelos (Calf Press in Leg Press)', primary: 'Gemelos', secondary: [] },
+  { name: 'Elevación de Talones a una sola pierna', primary: 'Gemelos', secondary: [] },
+  { name: 'Elevación de Talones en Máquina Smith', primary: 'Gemelos', secondary: [] },
+
+  // Glúteos
+  { name: 'Hip Thrust', primary: 'Glúteos', secondary: ['Isquiotibiales', 'Cuádriceps'] },
+  { name: 'Puente de Glúteos', primary: 'Glúteos', secondary: ['Isquiotibiales'] },
+  { name: 'Patada de Glúteo', primary: 'Glúteos', secondary: ['Isquiotibiales'] },
+  { name: 'Patada de Glúteo en Polea', primary: 'Glúteos', secondary: [] },
+  { name: 'Abducción de Cadera en Máquina', primary: 'Glúteos', secondary: [] },
+  { name: 'Zancadas Deficitarias (Deficit Lunges)', primary: 'Glúteos', secondary: ['Cuádriceps', 'Isquiotibiales'] },
+  { name: 'Sentadilla Búlgara con Enfoque en Glúteo', primary: 'Glúteos', secondary: ['Cuádriceps', 'Isquiotibiales'] },
+  { name: 'Paseo del Monstruo con Banda (Monster Walk)', primary: 'Glúteos', secondary: [] },
+
+  // Cuello
+  { name: 'Encogimientos de Hombros', primary: 'Cuello', secondary: ['Hombros', 'Espalda'] },
+  { name: 'Cuello con Arnés', primary: 'Cuello', secondary: [] },
+  { name: 'Puente de Cuello', primary: 'Cuello', secondary: [] },
+  { name: 'Encogimientos de Hombros con Mancuernas', primary: 'Cuello', secondary: ['Hombros', 'Espalda'] },
+  { name: 'Encogimientos con Barra por Detrás', primary: 'Cuello', secondary: ['Hombros', 'Espalda'] },
+  { name: 'Plancha de Cuello Isométrica', primary: 'Cuello', secondary: [] }
+];
+
+// Rebuild EXERCISE_SUGGESTIONS dynamically to keep compatibility with any legacy code
+const EXERCISE_SUGGESTIONS = {};
+EXERCISE_DATABASE.forEach(item => {
+  if (!EXERCISE_SUGGESTIONS[item.primary]) {
+    EXERCISE_SUGGESTIONS[item.primary] = [];
+  }
+  if (!EXERCISE_SUGGESTIONS[item.primary].includes(item.name)) {
+    EXERCISE_SUGGESTIONS[item.primary].push(item.name);
+  }
+});
 
 const getRpeDescription = (rpe) => {
   const num = Number(rpe) || 8;
@@ -509,6 +644,22 @@ export default function AddWorkoutForm({ onSaveWorkout, onUpdateWorkout, onClose
       ]
     }
   ]);
+  const [activeDropdownIndex, setActiveDropdownIndex] = useState(-1);
+
+  const getFilteredExercises = (searchQuery) => {
+    const query = (searchQuery || '').toLowerCase().trim();
+    if (!query) {
+      return EXERCISE_DATABASE.filter(ex => 
+        (trainedMuscles || []).includes(ex.primary) || 
+        ((!trainedMuscles || trainedMuscles.length === 0) && ex.primary === muscleGroup)
+      );
+    }
+    return EXERCISE_DATABASE.filter(ex => 
+      ex.name.toLowerCase().includes(query) ||
+      ex.primary.toLowerCase().includes(query) ||
+      ex.secondary.some(sec => sec.toLowerCase().includes(query))
+    );
+  };
 
   // Exercise to Muscle Map Dictionary for Smart Autodetection
   const EXERCISE_TO_MUSCLE_MAP = {
@@ -2431,6 +2582,25 @@ export default function AddWorkoutForm({ onSaveWorkout, onUpdateWorkout, onClose
           {/* GYM FIELDS */}
           {workoutType === 'gym' && (
             <div className="gym-form-section">
+              <style dangerouslySetInnerHTML={{__html: `
+                .custom-dropdown-item:hover {
+                  background: rgba(236, 72, 153, 0.08) !important;
+                  transform: translateX(4px);
+                }
+                .custom-exercise-dropdown::-webkit-scrollbar {
+                  width: 6px;
+                }
+                .custom-exercise-dropdown::-webkit-scrollbar-track {
+                  background: transparent;
+                }
+                .custom-exercise-dropdown::-webkit-scrollbar-thumb {
+                  background: rgba(236, 72, 153, 0.35);
+                  border-radius: 10px;
+                }
+                .custom-exercise-dropdown::-webkit-scrollbar-thumb:hover {
+                  background: rgba(236, 72, 153, 0.6);
+                }
+              `}} />
               <div className="form-group mb-4">
                 <label className="form-label">Nombre de la Sesión</label>
                 <input
@@ -2464,18 +2634,99 @@ export default function AddWorkoutForm({ onSaveWorkout, onUpdateWorkout, onClose
                   {exercises.map((ex, exIdx) => (
                     <div key={exIdx} className="exercise-card">
                       <div className="exercise-card-header">
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, position: 'relative' }}>
                           <label className="form-label text-xs" style={{ color: 'var(--text-secondary)' }}>Ejercicio #{exIdx + 1}</label>
                           <input
                             type="text"
                             placeholder="Ej: Press de Banca"
                             value={ex.name}
                             onChange={(e) => updateExerciseField(exIdx, 'name', e.target.value)}
+                            onFocus={() => setActiveDropdownIndex(exIdx)}
+                            onBlur={() => setTimeout(() => setActiveDropdownIndex(-1), 200)}
                             required
                             className="form-input"
                             style={{ width: '100%', fontWeight: '600' }}
-                            list={`exercise-suggestions-${muscleGroup}`}
+                            autoComplete="off"
                           />
+
+                          {activeDropdownIndex === exIdx && (
+                            <div 
+                              className="custom-exercise-dropdown"
+                              style={{
+                                position: 'absolute',
+                                top: '100%',
+                                left: 0,
+                                right: 0,
+                                zIndex: 1000,
+                                maxHeight: '240px',
+                                overflowY: 'auto',
+                                background: 'rgba(18, 18, 24, 0.98)',
+                                backdropFilter: 'blur(16px)',
+                                WebkitBackdropFilter: 'blur(16px)',
+                                border: '1px solid rgba(236, 72, 153, 0.25)',
+                                borderRadius: '10px',
+                                marginTop: '4px',
+                                boxShadow: '0 12px 30px -10px rgba(0, 0, 0, 0.8), 0 0 20px rgba(236, 72, 153, 0.12)',
+                                padding: '6px'
+                              }}
+                            >
+                              {(() => {
+                                const filtered = getFilteredExercises(ex.name);
+                                if (filtered.length === 0) {
+                                  return (
+                                    <div style={{ padding: '12px 10px', fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center' }}>
+                                      No se encontraron ejercicios
+                                    </div>
+                                  );
+                                }
+                                return filtered.map(item => (
+                                  <div
+                                    key={item.name}
+                                    onMouseDown={() => {
+                                      updateExerciseField(exIdx, 'name', item.name);
+                                      setActiveDropdownIndex(-1);
+                                    }}
+                                    style={{
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      padding: '8px 10px',
+                                      borderRadius: '6px',
+                                      cursor: 'pointer',
+                                      transition: 'background 0.2s ease, transform 0.1s ease',
+                                      gap: '12px'
+                                    }}
+                                    className="custom-dropdown-item"
+                                  >
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1 }}>
+                                      <span style={{ color: 'var(--text-primary)', fontSize: '0.85rem', fontWeight: '600' }}>
+                                        {item.name}
+                                      </span>
+                                      {item.secondary && item.secondary.length > 0 && (
+                                        <span style={{ color: 'rgba(255, 255, 255, 0.45)', fontSize: '0.7rem' }}>
+                                          + Involucra: {item.secondary.join(', ')}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span style={{
+                                      fontSize: '0.65rem',
+                                      fontWeight: '700',
+                                      textTransform: 'uppercase',
+                                      letterSpacing: '0.5px',
+                                      background: 'rgba(236, 72, 153, 0.15)',
+                                      color: 'var(--color-gym)',
+                                      padding: '3px 8px',
+                                      borderRadius: '4px',
+                                      border: '1px solid rgba(236, 72, 153, 0.25)',
+                                      whiteSpace: 'nowrap'
+                                    }}>
+                                      {item.primary}
+                                    </span>
+                                  </div>
+                                ));
+                              })()}
+                            </div>
+                          )}
                         </div>
                         
                         <button
@@ -2619,12 +2870,6 @@ export default function AddWorkoutForm({ onSaveWorkout, onUpdateWorkout, onClose
                     </div>
                   ))}
                 </div>
-
-                <datalist id={`exercise-suggestions-${muscleGroup}`}>
-                  {(EXERCISE_SUGGESTIONS[muscleGroup] || []).map(suggestion => (
-                    <option key={suggestion} value={suggestion} />
-                  ))}
-                </datalist>
 
                 <div className="builder-summary-line" style={{ marginTop: '1.25rem', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span>Volumen de series realizadas: <strong>{getLiveSessionVolume().toLocaleString('es-ES')} kg</strong></span>

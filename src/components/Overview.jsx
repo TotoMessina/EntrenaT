@@ -568,15 +568,21 @@ export default function Overview({ workouts, setActiveTab, onAddWorkoutClick, on
           </div>
           
           <div className="insights-list">
-            <div className="insight-item">
-              <div className="insight-icon">🎯</div>
+            <div 
+              className="insight-item click-action" 
+              onClick={() => {
+                localStorage.setItem('performance_subtab', 'vdot');
+                setActiveTab('performance');
+              }}
+              style={{ cursor: 'pointer', transition: 'all 0.2s ease' }}
+            >
+              <div className="insight-icon" style={{ background: 'rgba(139,92,246,0.1)', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '38px', height: '38px', borderRadius: '8px' }}>⚡</div>
               <div className="insight-content">
-                <h4>Predicción Maratón</h4>
-                {totalRuns > 0 ? (
-                  <p>Basado en tu última carrera, puedes estimar tu tiempo esperado de carrera de larga distancia en la pestaña de <strong>Calculadoras</strong>.</p>
-                ) : (
-                  <p>Registra al menos un entrenamiento de running para habilitar estimaciones precisas de tiempos.</p>
-                )}
+                <h4 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  Ritmos Científicos VDOT 
+                  <span style={{ fontSize: '0.65rem', padding: '0.1rem 0.35rem', borderRadius: '4px', background: 'rgba(139,92,246,0.15)', color: 'var(--color-primary)', fontWeight: 'bold' }}>NUEVO</span>
+                </h4>
+                <p>Calcula tus ritmos óptimos de entrenamiento (Easy, Tempo, Intervalos) según la fórmula del Dr. Jack Daniels. <strong>Haz clic para abrir.</strong></p>
               </div>
             </div>
 
@@ -902,6 +908,13 @@ export default function Overview({ workouts, setActiveTab, onAddWorkoutClick, on
           border-radius: 12px;
           background: rgba(9, 10, 15, 0.4);
           border: 1px solid rgba(255, 255, 255, 0.02);
+          transition: all 0.2s ease;
+        }
+
+        .insight-item.click-action:hover {
+          background: rgba(139, 92, 246, 0.06);
+          border-color: rgba(139, 92, 246, 0.2);
+          transform: translateY(-2px);
         }
 
         .insight-icon {

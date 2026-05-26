@@ -20,7 +20,11 @@ export default function PerformanceHub({
   showAlert,
   showConfirm
 }) {
-  const [activeSubTab, setActiveSubTab] = useState('planner'); // planner, shoes, readiness, vdot, intervals, prs, interference
+  const [activeSubTab, setActiveSubTab] = useState(() => {
+    const saved = localStorage.getItem('performance_subtab');
+    localStorage.removeItem('performance_subtab'); // Consume one-off deep-link
+    return saved || 'planner';
+  });
 
   const subTabs = [
     { id: 'planner', label: 'Planificador', icon: Target },
@@ -60,6 +64,7 @@ export default function PerformanceHub({
             profile={profile} 
             readinessLogs={readinessLogs} 
             onUpdateReadinessLogs={onUpdateReadinessLogs} 
+            workouts={workouts}
           />
         );
       case 'vdot':
