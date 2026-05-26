@@ -39,7 +39,7 @@ const getStartOfWeek = (d) => {
   return monday.toISOString().split('T')[0];
 };
 
-export default function AnalyticsView({ workouts, theme }) {
+export default function AnalyticsView({ workouts, theme, profile }) {
   const runningWorkouts = workouts
     .filter(w => w.type === 'running')
     .sort((a, b) => new Date(a.date + 'T00:00:00') - new Date(b.date + 'T00:00:00'));
@@ -63,6 +63,11 @@ export default function AnalyticsView({ workouts, theme }) {
   const [compTimeframe, setCompTimeframe] = useState('semana'); // 'semana', 'mes'
   const [selectedPeriodA, setSelectedPeriodA] = useState('');
   const [selectedPeriodB, setSelectedPeriodB] = useState('');
+
+  // --- VO2MAX ESTIMATOR COMPUTATIONS (DERIVED FROM PROFILE & AGE) ---
+  const userAge = profile?.age || Number(localStorage.getItem('fitanalytics_age')) || 25;
+  const hrMax = Math.round(208 - 0.7 * userAge);
+  const hrRest = profile?.restingHR || Number(localStorage.getItem('fitanalytics_hr_rest')) || 60;
 
   // Generate lists of available periods dynamically (scans user workouts for active periods)
   const getAvailableWeeks = () => {
@@ -265,6 +270,137 @@ export default function AnalyticsView({ workouts, theme }) {
 
   const statsA = computePeriodStats(compTimeframe === 'semana' ? weekStartA : monthStartA);
   const statsB = computePeriodStats(compTimeframe === 'semana' ? weekStartB : monthStartB);
+
+  // --- VO2MAX HISTORICAL ESTIMATOR AGGREGATIONS ---
+  const getVO2MaxData = () => {
+    const months = [];
+    const today = new Date();
+    const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date();
+      d.setMonth(today.getMonth() - i);
+      months.push({
+        year: d.getFullYear(),
+        month: d.getMonth(),
+        label: `${monthNames[d.getMonth()]} ${d.getFullYear()}`,
+        vo2Sum: 0,
+        count: 0
+      });
+    }
+
+    runningWorkouts.forEach(w => {
+      const wDate = new Date(w.date + 'T00:00:00');
+      const match = months.find(m => m.year === wDate.getFullYear() && m.month === wDate.getMonth());
+      if (match) {
+        const durationMins = timeStringToSeconds(w.duration) / 60;
+        const dist = Number(w.distance) || 0;
+        
+        // VO2Max Active calculation (only for running workouts of at least 10 minutes)
+        if (durationMins >= 10 && dist > 0) {
+          const speedMeterPerMin = (dist * 1000) / durationMins;
+          const acsmVO2 = 3.5 + 0.2 * speedMeterPerMin;
+          
+          let workoutVO2 = acsmVO2;
+          
+          // If workout has Heart Rate, apply cardiac efficiency scaling
+          const wAvgHR = Number(w.heartRate || w.avgHr || w.hr || 0);
+          if (wAvgHR > 0 && hrMax > 0) {
+            // Scale based on HR intensity
+            workoutVO2 = acsmVO2 * (hrMax / wAvgHR);
+          }
+          
+          match.vo2Sum += workoutVO2;
+          match.count += 1;
+        }
+      }
+    });
+
+    return months.map(m => {
+      return {
+        label: m.label,
+        vo2: m.count > 0 ? Math.round((m.vo2Sum / m.count) * 10) / 10 : 0
+      };
+    });
+  };
+
+  const vo2MonthlyData = getVO2MaxData();
+  const vo2Labels = vo2MonthlyData.map(d => d.label);
+  const vo2Values = vo2MonthlyData.map(d => d.vo2);
+
+  const uthVO2Max = hrRest > 0 ? Math.round((15.3 * (hrMax / hrRest)) * 10) / 10 : 0;
+
+  const currentVO2Max = (() => {
+    for (let i = vo2MonthlyData.length - 1; i >= 0; i--) {
+      if (vo2MonthlyData[i].vo2 > 0) return vo2MonthlyData[i].vo2;
+    }
+    return uthVO2Max;
+  })();
+
+  const getVO2MaxCategory = (val) => {
+    if (val >= 52) return { text: 'Élite 👑', color: '#a855f7', desc: 'Capacidad aeróbica excepcional de atleta profesional.' };
+    if (val >= 44) return { text: 'Excelente ⚡', color: '#10b981', desc: 'Excelente condición cardiovascular. Muy por encima de la media.' };
+    if (val >= 35) return { text: 'Aceptable 🏃', color: '#f59e0b', desc: 'Condición física moderada. Buen trabajo aeróbico base.' };
+    return { text: 'Pobre ⚠️', color: '#ef4444', desc: 'Rendimiento aeróbico bajo. Se recomienda aumentar el volumen en Zona 2.' };
+  };
+  const vo2Category = getVO2MaxCategory(currentVO2Max);
+
+  const vo2ChartData = {
+    labels: vo2Labels,
+    datasets: [
+      {
+        label: 'VO2Max Activo (Carrera)',
+        data: vo2Values.map(v => v === 0 ? null : v),
+        borderColor: '#ec4899',
+        backgroundColor: 'rgba(236, 72, 153, 0.1)',
+        borderWidth: 3,
+        pointBackgroundColor: '#ec4899',
+        pointHoverRadius: 6,
+        fill: true,
+        tension: 0.35,
+        spanGaps: true
+      },
+      {
+        label: 'Potencial Fisiológico (Uth Formula)',
+        data: Array(vo2Labels.length).fill(uthVO2Max),
+        borderColor: '#a855f7',
+        borderWidth: 2,
+        borderDash: [6, 6],
+        pointRadius: 0,
+        fill: false
+      }
+    ]
+  };
+
+  const vo2ChartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: 'top',
+        labels: {
+          color: legendColor,
+          font: { family: 'Outfit', size: 11 }
+        }
+      },
+      tooltip: {
+        callbacks: {
+          label: (context) => ` ${context.dataset.label}: ${context.raw} mL/kg/min`
+        }
+      }
+    },
+    scales: {
+      y: {
+        grid: { color: gridColor },
+        ticks: { color: textColor },
+        title: { display: true, text: 'VO2Max (mL/kg/min)', color: textColor }
+      },
+      x: {
+        grid: { display: false },
+        ticks: { color: textColor }
+      }
+    }
+  };
 
   const getWeeklyDayComparison = () => {
     const distA = Array(7).fill(0);
@@ -2155,6 +2291,143 @@ export default function AnalyticsView({ workouts, theme }) {
                         );
                       })}
                     </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* ========================================== */}
+          {/* VO2MAX HISTORICAL ESTIMATOR & TRACKER CARD */}
+          {/* ========================================== */}
+          <section className="vo2max-section fade-in mb-6" style={{ marginTop: '1.5rem' }}>
+            <div className="glass-card" style={{ padding: '1.75rem', position: 'relative', overflow: 'hidden' }}>
+              <div className="chart-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1.25rem', marginBottom: '1.5rem', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '1rem' }}>
+                <div>
+                  <h3 className="chart-title flex-center" style={{ fontSize: '1.15rem', fontWeight: '800', gap: '6px', color: 'var(--text-primary)' }}>
+                    <Activity size={20} style={{ color: '#ec4899' }} /> 
+                    Estimador y Progresión de VO2Max Histórico
+                  </h3>
+                  <span className="text-secondary text-xs">Monitorea tu volumen máximo de oxígeno asimilado (mL/kg/min) frente a tu potencial fisiológico teórico.</span>
+                </div>
+                
+                {/* Profile-derived physiological indicators */}
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span style={{
+                    fontSize: '0.72rem',
+                    fontWeight: '700',
+                    color: 'var(--text-secondary)',
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    padding: '4px 10px',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255, 255, 255, 0.05)'
+                  }}>
+                    👤 Edad: <strong style={{ color: '#fff' }}>{userAge}a</strong>
+                  </span>
+                  <span style={{
+                    fontSize: '0.72rem',
+                    fontWeight: '700',
+                    color: 'var(--text-secondary)',
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    padding: '4px 10px',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255, 255, 255, 0.05)'
+                  }}>
+                    💓 FCmáx Est: <strong style={{ color: '#ec4899' }}>{hrMax} ppm</strong>
+                  </span>
+                  <span style={{
+                    fontSize: '0.72rem',
+                    fontWeight: '700',
+                    color: 'var(--text-secondary)',
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    padding: '4px 10px',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255, 255, 255, 0.05)'
+                  }}>
+                    🛌 FCreposo: <strong style={{ color: '#a855f7' }}>{hrRest} ppm</strong>
+                  </span>
+                </div>
+              </div>
+
+              {/* Main content layout */}
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.75rem', alignItems: 'stretch' }} className="volume-grid-layout">
+                {/* Left Side: VO2Max Line Chart */}
+                <div style={{ background: 'rgba(0,0,0,0.12)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.03)', padding: '1rem', position: 'relative', minHeight: '330px' }}>
+                  {runningWorkouts.length === 0 ? (
+                    <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                      Registra corridas para comenzar a trazar tu VO2Max activo.
+                    </div>
+                  ) : (
+                    <Line data={vo2ChartData} options={vo2ChartOptions} />
+                  )}
+                </div>
+
+                {/* Right Side: Scientific statistics details */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', justifyContent: 'space-between' }}>
+                  <div className="glass-card" style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.04)', padding: '1.25rem', borderRadius: '12px', flex: 1, display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    <div>
+                      <span className="toolbar-label" style={{ fontSize: '0.68rem', display: 'block', marginBottom: '4px' }}>
+                        Consumo de Oxígeno Actual (Último Mes Activo)
+                      </span>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+                        <span style={{ fontSize: '2.1rem', fontWeight: 900, color: '#ec4899', lineHeight: 1 }}>
+                          {currentVO2Max.toFixed(1)}
+                        </span>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                          mL/kg/min
+                        </span>
+                      </div>
+                      
+                      {/* Classification Badge */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
+                        <span style={{
+                          fontSize: '0.72rem',
+                          fontWeight: '800',
+                          borderRadius: '6px',
+                          padding: '3px 8px',
+                          background: `${vo2Category.color}18`,
+                          color: vo2Category.color,
+                          border: `1px solid ${vo2Category.color}35`,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.05em'
+                        }}>
+                          Rango: {vo2Category.text}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', marginTop: '6px', lineHeight: '1.3' }}>
+                        {vo2Category.desc}
+                      </span>
+                    </div>
+
+                    {/* Physiology & Uth estimation detail */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '0.85rem' }}>
+                      <span className="toolbar-label" style={{ fontSize: '0.68rem' }}>Potencial Fisiológico Teórico</span>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Fórmula Uth-Sørensen:</span>
+                        <strong style={{ color: 'var(--text-primary)' }}>{uthVO2Max} mL/kg/min</strong>
+                      </div>
+                      <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', lineHeight: '1.3' }}>
+                        Estima tu techo aeróbico genético aproximado cruzando tu frecuencia cardíaca máxima y tu pulso en reposo.
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Scientific training advice */}
+                  <div style={{
+                    borderLeft: '3px solid #ec4899',
+                    background: 'rgba(236, 72, 153, 0.03)',
+                    padding: '0.85rem 1rem',
+                    borderRadius: '4px 8px 8px 4px',
+                    fontSize: '0.72rem',
+                    lineHeight: '1.35',
+                    color: 'var(--text-secondary)'
+                  }}>
+                    <strong>💡 Consejo Fisiológico de VO2Max:</strong>
+                    {currentVO2Max < 44 ? (
+                      ' Para elevar tu VO2Max de forma segura, el volumen es la clave. Entrena en Zona 2 el 80% de tus sesiones semanales para expandir la densidad capilar de tus piernas.'
+                    ) : (
+                      ' Excelente base aeróbica. Para seguir progresando tu VO2Max, introduce una sesión semanal de intervalos duros (ej: 4x4 minutos al 90-95% HRmax con 3 minutos de recuperación).'
+                    )}
                   </div>
                 </div>
               </div>

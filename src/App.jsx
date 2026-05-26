@@ -117,7 +117,7 @@ export default function App() {
           />
         );
       case 'analytics':
-        return <AnalyticsView workouts={workouts} theme={theme} />;
+        return <AnalyticsView workouts={workouts} theme={theme} profile={profile} />;
       case 'nutrition':
         return (
           <NutritionView

@@ -16,9 +16,23 @@ import {
   CheckCircle,
   ShieldAlert,
   Copy,
-  Bot
+  Bot,
+  Zap
 } from 'lucide-react';
-import { secondsToTimeString, formatPace, timeStringToSeconds, calculateDecayedHistoricalRunningMetrics, getRunningExponentDetails, getBestEffortFromSplits, calculate1RM } from '../utils/calculators';
+import { 
+  secondsToTimeString, 
+  formatPace, 
+  timeStringToSeconds, 
+  calculateDecayedHistoricalRunningMetrics, 
+  getRunningExponentDetails, 
+  getBestEffortFromSplits, 
+  calculate1RM,
+  calculateHRZones,
+  calculateACWRData,
+  getRunningPaceZones,
+  getRacePredictions,
+  solveVDOTTime
+} from '../utils/calculators';
 import { calculateAchievements } from '../utils/achievements';
 
 export default function ReportModal({ workouts, profile, onClose }) {
@@ -30,6 +44,57 @@ export default function ReportModal({ workouts, profile, onClose }) {
   const height = profile?.height || 175;
   const restingHR = profile?.restingHR || 60;
   const gender = profile?.gender === 'female' ? 'Femenino' : 'Masculino';
+
+  // --- TELEMETRY AND PHYSIOLOGICAL CALCULATIONS ---
+  const decayedMetrics = calculateDecayedHistoricalRunningMetrics(workouts, profile);
+  const exponentDetails = getRunningExponentDetails(profile, workouts);
+  const acwrData = calculateACWRData(workouts);
+
+  // Tanaka derived Max HR
+  const maxHR = Math.round(208 - 0.7 * age);
+
+  // Uth-Sørensen Potential VO2Max
+  const potentialVo2Max = restingHR > 0 ? Math.round((15.3 * (maxHR / restingHR)) * 10) / 10 : 0;
+
+  // Jack Daniels VDOT zones & predictions derived from the weighted VDOT
+  const vdot = decayedMetrics.weightedVdot;
+  let paceZones = [];
+  let racePredictions = [];
+  if (vdot > 0) {
+    const eqSecs = solveVDOTTime(5.0, vdot);
+    const hh = Math.floor(eqSecs / 3600);
+    const mm = Math.floor((eqSecs % 3600) / 60);
+    const ss = Math.round(eqSecs % 60);
+    const timeStr = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+    paceZones = getRunningPaceZones(5.0, timeStr, profile, workouts);
+    racePredictions = getRacePredictions(5.0, timeStr, profile, workouts);
+  }
+
+  // Tanaka HR Zones
+  const hrZones = calculateHRZones(age);
+
+  // ACWR Safety Status
+  const acwrVal = acwrData?.current?.acwr || 1.0;
+  let acwrStatusColor = "#10b981"; // green
+  let acwrStatusText = "Zona Dulce (Óptimo)";
+  let acwrStatusClass = "acwr-sweet";
+  let acwrStatusDesc = "Tu ritmo de entrenamiento está en balance perfecto. Tienes bajo riesgo de lesión muscular u ósea y estás estimulando de forma ideal tus adaptaciones cardiovasculares.";
+  if (acwrVal < 0.80) {
+    acwrStatusColor = "#3b82f6"; // blue
+    acwrStatusText = "Subentrenamiento";
+    acwrStatusClass = "acwr-under";
+    acwrStatusDesc = "Tu carga actual es muy baja en comparación con tu base histórica. Tu riesgo de lesión por desacondicionamiento es mayor si realizas un esfuerzo repentino; planifica un aumento gradual.";
+  } else if (acwrVal > 1.30 && acwrVal <= 1.50) {
+    acwrStatusColor = "#f59e0b"; // amber
+    acwrStatusText = "Zona de Cuidado / Carga Elevada";
+    acwrStatusClass = "acwr-warning";
+    acwrStatusDesc = "Estás incrementando el volumen o intensidad a un ritmo veloz. Tu riesgo de sobrecarga muscular es elevado. Presta atención a las molestias en tendones y articulaciones.";
+  } else if (acwrVal > 1.50) {
+    acwrStatusColor = "#ef4444"; // red
+    acwrStatusText = "Zona de Peligro / Sobreentrenamiento";
+    acwrStatusClass = "acwr-danger";
+    acwrStatusDesc = "¡Cuidado! Tu carga aguda supera severamente tu base crónica (ACWR > 1.50). El riesgo de lesión inminente o fatiga crónica es crítico. Se recomienda encarecipamente realizar una descarga activa.";
+  }
 
   // --- 1. PERIOD DATE FILTERING ---
   const getFilteredWorkouts = () => {
@@ -212,10 +277,6 @@ export default function ReportModal({ workouts, profile, onClose }) {
   const [copiedForAI, setCopiedForAI] = useState(false);
 
   const generateMarkdownReport = () => {
-    // Calcular métricas de telemetría avanzadas e historial
-    const decayedMetrics = calculateDecayedHistoricalRunningMetrics(workouts, profile);
-    const exponentDetails = getRunningExponentDetails(profile, workouts);
-
     // Calcular récords de honor (incluyendo splits contiguos)
     const targets = [
       { label: 'Mejor 1K', distance: 1.0 },
@@ -287,15 +348,47 @@ export default function ReportModal({ workouts, profile, onClose }) {
     md += `- **Edad:** ${age} años\n`;
     md += `- **Peso Corporal:** ${weight} kg\n`;
     md += `- **Estatura:** ${height} cm\n`;
-    md += `- **Frecuencia Cardíaca en Reposo:** ${restingHR} bpm\n\n`;
+    md += `- **Frecuencia Cardíaca en Reposo:** ${restingHR} bpm\n`;
+    md += `- **Frecuencia Cardíaca Máxima (Tanaka):** ${maxHR} bpm\n\n`;
 
-    md += `## 2. Telemetría Cardiovascular y Fisiológica Avanzada\n`;
+    md += `## 2. Telemetría Cardiovascular y Fisiológica Cardiovascular Avanzada\n`;
     md += `- **VDOT Mecánico Ponderado (Daniels):** ${decayedMetrics.weightedVdot} ml/kg/min\n`;
     md += `- **VO2máx Cardíaco Ponderado (ACSM):** ${decayedMetrics.hasHRData ? `${decayedMetrics.weightedVo2MaxHR} ml/kg/min` : 'Sin datos cardíacos suficientes'}\n`;
+    md += `- **VO2máx Teórico Potencial (Uth-Sørensen):** ${potentialVo2Max > 0 ? `${potentialVo2Max} ml/kg/min` : 'Sin datos (Requiere FC en reposo)'}\n`;
     md += `- **Exponente de Fatiga Calibrado (Riegel):** ${exponentDetails.finalExponent} (${exponentDetails.hasCalculatedFromRecords ? 'Calibrado de récords reales' : 'Estimado por biometría/volumen'})\n`;
-    md += `- **Diagnóstico y Plan Recomendado:** ${exponentDetails.recommendation}\n\n`;
+    md += `- **Diagnóstico Fisiológico:** ${exponentDetails.recommendation}\n\n`;
 
-    md += `## 3. Cuadro de Honor y Récords Personales (Extracción Contigua Laps/Splits)\n`;
+    md += `## 3. Planificador de Ritmos y Frecuencias Cardíacas de Entrenamiento\n`;
+    if (paceZones.length > 0) {
+      paceZones.forEach(zone => {
+        md += `### 🏃 ${zone.name} (${zone.range})\n`;
+        md += `- **Ritmo Proyectado:** ${zone.paceMin} - ${zone.paceMax}\n`;
+        md += `- **Frecuencia Cardíaca Objetivo:** ${zone.hrRange}\n`;
+        md += `- **Enfoque Fisiológico:** ${zone.description}\n\n`;
+      });
+    } else {
+      md += `*Requiere un registro de running en el periodo seleccionado para estimar ritmos.*\n\n`;
+    }
+
+    md += `## 4. Distribución de Zonas Cardíacas Tanaka\n`;
+    if (hrZones.length > 0) {
+      hrZones.forEach(zone => {
+        const minBpm = Math.round(maxHR * zone.pctMin / 100);
+        const maxBpm = Math.round(maxHR * zone.pctMax / 100);
+        md += `- **${zone.name} (${zone.pctMin}% - ${zone.pctMax}%):** ${minBpm} - ${maxBpm} bpm\n`;
+        md += `  * ${zone.description}\n`;
+      });
+    }
+    md += `\n`;
+
+    md += `## 5. Índice de Carga Aguda:Crónica (ACWR) y Fatiga Sistémica\n`;
+    md += `- **Carga de Trabajo Aguda (7 días):** ${acwrData.current.acute} unidades\n`;
+    md += `- **Carga de Trabajo Crónica (28 días):** ${acwrData.current.chronic} unidades\n`;
+    md += `- **Ratio ACWR Global:** ${acwrData.current.acwr} | **Running ACWR:** ${acwrData.current.runningAcwr} | **Gym ACWR:** ${acwrData.current.gymAcwr}\n`;
+    md += `- **Estado de Salud Musculoesquelética:** ${acwrStatusText}\n`;
+    md += `- **Diagnóstico de Lesión:** ${acwrStatusDesc}\n\n`;
+
+    md += `## 6. Cuadro de Honor y Récords Personales (Extracción Contigua Laps/Splits)\n`;
     calculatedPRs.forEach(pr => {
       if (pr.bestTime) {
         const originType = pr.isFromSplits 
@@ -308,7 +401,7 @@ export default function ReportModal({ workouts, profile, onClose }) {
     });
     md += `\n`;
 
-    md += `## 4. Resumen Macrociclo (Global del Periodo)\n`;
+    md += `## 7. Resumen Macrociclo (Global del Periodo)\n`;
     md += `- Sesiones de Running Totales: ${runningCount}\n`;
     md += `- Distancia Acumulada: ${totalKm.toFixed(2)} km\n`;
     md += `- Ritmo Promedio Ponderado: ${formatPace(avgPaceSecs)} min/km\n`;
@@ -317,13 +410,13 @@ export default function ReportModal({ workouts, profile, onClose }) {
       md += `- Volumen de Carga Total: ${totalVol} kg\n`;
     }
     
-    md += `\n## 5. Récords Biomecánicos (Fuerza Máxima - 1RM)\n`;
+    md += `\n## 8. Récords Biomecánicos (Fuerza Máxima - 1RM)\n`;
     if (bestBench) md += `- Bench Press: ${Math.round(bestBench.oneRepMax)} kg (Con base en: ${bestBench.weight}kg x ${bestBench.reps})\n`;
     if (bestSquat) md += `- Squat: ${Math.round(bestSquat.oneRepMax)} kg (Con base en: ${bestSquat.weight}kg x ${bestSquat.reps})\n`;
     if (bestDeadlift) md += `- Deadlift: ${Math.round(bestDeadlift.oneRepMax)} kg (Con base en: ${bestDeadlift.weight}kg x ${bestDeadlift.reps})\n`;
     if (!bestBench && !bestSquat && !bestDeadlift) md += `- Sin registros concluyentes en este periodo.\n`;
 
-    md += `\n## 6. Historial Detallado de Sesiones\n`;
+    md += `\n## 9. Historial Detallado de Sesiones\n`;
     filtered.forEach((w, i) => {
       md += `### [${w.date}] Sesión ${i+1}: ${w.type === 'running' ? 'Running' : 'Fuerza'}\n`;
       if (w.type === 'running') {
@@ -601,6 +694,179 @@ export default function ReportModal({ workouts, profile, onClose }) {
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* SECCIÓN AVANZADA: FISIOLOGÍA DE OXÍGENO & VO2MAX */}
+            <div className="report-main-section glass-card">
+              <h3 className="section-subtitle">
+                <Zap size={16} className="text-running animate-pulse" />
+                Análisis Fisiológico de Oxígeno & VO2Max
+              </h3>
+              <div className="report-section-grid" style={{ gridTemplateColumns: '1.2fr 1.8fr', gap: '1.5rem' }}>
+                {/* Cards showing active vs potential VO2Max */}
+                <div className="report-nested-box" style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', justifyContent: 'center' }}>
+                  <div style={{ textAlign: 'center', padding: '0.5rem', borderBottom: '1px dashed var(--border-light)' }}>
+                    <span className="detail-label" style={{ fontSize: '0.78rem' }}>VO2Max Activo Ponderado (ACSM)</span>
+                    <div style={{ fontSize: '1.8rem', fontWeight: '900', color: 'var(--color-running)', margin: '0.25rem 0' }}>
+                      {decayedMetrics.hasHRData ? `${decayedMetrics.weightedVo2MaxHR}` : 'N/A'}
+                    </div>
+                    <span className="text-secondary text-xs">ml/kg/min (De tus entrenamientos)</span>
+                  </div>
+                  <div style={{ textAlign: 'center', padding: '0.5rem' }}>
+                    <span className="detail-label" style={{ fontSize: '0.78rem' }}>VO2Max Potencial Teórico (Uth)</span>
+                    <div style={{ fontSize: '1.8rem', fontWeight: '900', color: '#10b981', margin: '0.25rem 0' }}>
+                      {potentialVo2Max > 0 ? `${potentialVo2Max}` : 'N/A'}
+                    </div>
+                    <span className="text-secondary text-xs">ml/kg/min (Por frecuencia cardíaca)</span>
+                  </div>
+                </div>
+
+                {/* Exponente de Fatiga de Riegel y recomendación */}
+                <div className="report-nested-box" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <h4 className="nested-box-title" style={{ margin: 0 }}>Eficiencia Aeróbica & Riegel</h4>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', paddingBottom: '0.5rem', borderBottom: '1px solid var(--border-light)' }}>
+                    <span className="detail-label">VDOT Daniels Ponderado:</span>
+                    <span className="detail-value font-bold">{vdot} ml/kg/min</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', paddingBottom: '0.5rem', borderBottom: '1px solid var(--border-light)' }}>
+                    <span className="detail-label">Exponente de Fatiga Riegel:</span>
+                    <span className="detail-value font-bold" style={{ color: 'var(--color-primary)' }}>{exponentDetails.finalExponent}</span>
+                  </div>
+                  <div style={{ fontSize: '0.78rem', lineHeight: '1.4', color: 'var(--text-secondary)' }}>
+                    <strong>Análisis de Resistencia:</strong> {exponentDetails.recommendation}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* SECCIÓN AVANZADA: RITMOS DE ENTRENAMIENTO & ZONAS CARDÍACAS */}
+            <div className="report-main-section glass-card page-break-print">
+              <h3 className="section-subtitle">
+                <Heart size={16} style={{ color: '#ef4444' }} />
+                Zonas Cardíacas Tanaka & Ritmos de Entrenamiento Proyectados
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                {/* Tabla de Ritmos Jack Daniels */}
+                <div>
+                  <h4 className="nested-box-title" style={{ marginBottom: '0.5rem' }}>Planificador de Ritmos Proyectados (Jack Daniels VDOT)</h4>
+                  {paceZones.length === 0 ? (
+                    <div className="no-data-report-box">Sin telemetría de ritmos suficiente para estimar zonas.</div>
+                  ) : (
+                    <table className="report-data-table">
+                      <thead>
+                        <tr>
+                          <th>Zona de Entrenamiento</th>
+                          <th>Rango VDOT</th>
+                          <th className="center">Ritmo Proyectado</th>
+                          <th className="center">Frecuencia Cardíaca Objetivo</th>
+                          <th>Enfoque Fisiológico</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paceZones.map(zone => (
+                          <tr key={zone.name}>
+                            <td className="font-bold">{zone.name}</td>
+                            <td className="text-secondary text-xs">{zone.range}</td>
+                            <td className="center font-bold" style={{ color: 'var(--color-running)' }}>{zone.paceMin} - {zone.paceMax}</td>
+                            <td className="center font-bold" style={{ color: '#ef4444' }}>{zone.hrRange}</td>
+                            <td className="text-secondary text-xs" style={{ whiteSpace: 'normal', minWidth: '180px' }}>{zone.description}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+
+                {/* Desglose de Zonas Cardíacas de Tanaka */}
+                <div>
+                  <h4 className="nested-box-title" style={{ marginBottom: '0.5rem' }}>Distribución de Zonas de Frecuencia Cardíaca de Tanaka</h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '0.65rem' }}>
+                    {hrZones.map(zone => {
+                      const minBpm = Math.round(maxHR * zone.pctMin / 100);
+                      const maxBpm = Math.round(maxHR * zone.pctMax / 100);
+                      return (
+                        <div key={zone.name} className="report-nested-box" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', padding: '0.65rem 0.45rem' }}>
+                          <span style={{ fontSize: '0.72rem', fontWeight: '800', color: zone.color, whiteSpace: 'nowrap' }}>{zone.name.split(':')[0]}</span>
+                          <span style={{ fontSize: '0.85rem', fontWeight: '950', margin: '0.2rem 0' }}>{minBpm} - {maxBpm}</span>
+                          <span className="text-secondary text-xs" style={{ fontSize: '0.6rem' }}>{zone.pctMin}% - {zone.pctMax}% HRmax</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* SECCIÓN AVANZADA: ACWR & PREVENCIÓN DE LESIONES */}
+            <div className="report-main-section glass-card">
+              <h3 className="section-subtitle">
+                <ShieldAlert size={16} style={{ color: acwrStatusColor }} />
+                Índice de Carga de Trabajo ACWR (Agudo:Crónico) & Prevención de Lesiones
+              </h3>
+              <div className="report-section-grid" style={{ gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                {/* Cargas e Índices específicos */}
+                <div className="report-nested-box" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  <h4 className="nested-box-title" style={{ margin: 0 }}>Carga y Ratios por Disciplina</h4>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', paddingBottom: '0.35rem', borderBottom: '1px dashed rgba(255,255,255,0.04)' }}>
+                    <span className="detail-label">Carga Aguda (7d promedio):</span>
+                    <span className="detail-value font-bold">{acwrData.current.acute}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', paddingBottom: '0.35rem', borderBottom: '1px dashed rgba(255,255,255,0.04)' }}>
+                    <span className="detail-label">Carga Crónica (28d promedio):</span>
+                    <span className="detail-value font-bold">{acwrData.current.chronic}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', paddingBottom: '0.35rem', borderBottom: '1px dashed rgba(255,255,255,0.04)' }}>
+                    <span className="detail-label">Ratio ACWR Global:</span>
+                    <span className="detail-value font-bold text-primary">{acwrData.current.acwr}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', paddingBottom: '0.35rem', borderBottom: '1px dashed rgba(255,255,255,0.04)' }}>
+                    <span className="detail-label">ACWR Específico Running:</span>
+                    <span className="detail-value font-bold" style={{ color: 'var(--color-running)' }}>{acwrData.current.runningAcwr}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
+                    <span className="detail-label">ACWR Específico Fuerza (Gym):</span>
+                    <span className="detail-value font-bold" style={{ color: 'var(--color-gym)' }}>{acwrData.current.gymAcwr}</span>
+                  </div>
+                </div>
+
+                {/* Semáforo visual y diagnóstico */}
+                <div className="report-nested-box" style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', justifyContent: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: acwrStatusColor }}></div>
+                    <span style={{ fontSize: '0.9rem', fontWeight: '900', color: acwrStatusColor }}>{acwrStatusText}</span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: '0.78rem', lineHeight: '1.45', color: 'var(--text-secondary)' }}>
+                    <strong>Evaluación de Fatiga:</strong> {acwrStatusDesc}
+                  </p>
+                  {/* Visual semaphore scale bar */}
+                  <div style={{ width: '100%', height: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '10px', overflow: 'hidden', position: 'relative', marginTop: '0.25rem', border: '1px solid var(--border-light)' }}>
+                    <div style={{
+                      position: 'absolute',
+                      left: `${Math.min(100, Math.max(0, (acwrVal / 2.0) * 100))}%`,
+                      top: '-2px',
+                      width: '12px',
+                      height: '12px',
+                      borderRadius: '50%',
+                      background: acwrStatusColor,
+                      border: '2px solid white',
+                      transform: 'translateX(-50%)',
+                      boxShadow: '0 0 8px rgba(0,0,0,0.5)'
+                    }}></div>
+                    <div style={{ display: 'flex', width: '100%', height: '100%' }}>
+                      <div style={{ width: '40%', height: '100%', background: '#3b82f6', opacity: 0.25 }}></div> {/* Blue Subentrenamiento */}
+                      <div style={{ width: '25%', height: '100%', background: '#10b981', opacity: 0.25 }}></div> {/* Green Sweet Spot */}
+                      <div style={{ width: '10%', height: '100%', background: '#f59e0b', opacity: 0.25 }}></div> {/* Amber Warning */}
+                      <div style={{ width: '25%', height: '100%', background: '#ef4444', opacity: 0.25 }}></div> {/* Red Danger */}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.62rem', color: 'var(--text-muted)' }}>
+                    <span>Sub (0.0 - 0.8)</span>
+                    <span>Óptimo (0.8 - 1.3)</span>
+                    <span>Cuidado (1.3 - 1.5)</span>
+                    <span>Riesgo (1.5+)</span>
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* STRENGTH & FORCE ESTIMATIONS SECTION */}
@@ -1193,14 +1459,17 @@ export default function ReportModal({ workouts, profile, onClose }) {
             color: black !important;
             box-shadow: none !important;
             border: none !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
 
           .printable-report-container * {
             color: black !important;
-            background: transparent !important;
             text-shadow: none !important;
             box-shadow: none !important;
             border-color: #cbd5e1 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
 
           .report-athlete-card,
@@ -1211,7 +1480,6 @@ export default function ReportModal({ workouts, profile, onClose }) {
           .medal-mini-card-print,
           .coach-advice-box {
             border: 1px solid #94a3b8 !important;
-            background: none !important;
             padding: 1rem !important;
             border-radius: 8px !important;
           }
