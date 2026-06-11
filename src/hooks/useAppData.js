@@ -1465,7 +1465,20 @@ export function useAppData() {
           heartRate: 152,
           rpe: 7,
           terrain: 'Asfalto',
-          notes: '🏃 Trote tempo en parque con ritmo progresivo. ¡Sincronizado de Strava con sensaciones espectaculares!'
+          notes: '🏃 Trote tempo en parque con ritmo progresivo. ¡Sincronizado de Strava con sensaciones espectaculares!',
+          splits: [
+            { splitNumber: 1, distance: 1000, time: "05:02" },
+            { splitNumber: 2, distance: 1000, time: "04:55" },
+            { splitNumber: 3, distance: 1000, time: "04:48" },
+            { splitNumber: 4, distance: 1000, time: "04:45" },
+            { splitNumber: 5, distance: 1000, time: "04:42" },
+            { splitNumber: 6, distance: 1000, time: "04:38" },
+            { splitNumber: 7, distance: 1000, time: "04:35" },
+            { splitNumber: 8, distance: 1000, time: "04:32" },
+            { splitNumber: 9, distance: 1000, time: "04:30" },
+            { splitNumber: 10, distance: 1000, time: "04:45" },
+            { splitNumber: 11, distance: 200, time: "00:53" }
+          ]
         },
         {
           id: `strava-mock-2-${Date.now()}`,
@@ -1476,7 +1489,14 @@ export function useAppData() {
           heartRate: 165,
           rpe: 8,
           terrain: 'Pista',
-          notes: '⚡ Series de velocidad 5x800m en pista de atletismo. ¡Sincronizado de Strava cumpliendo los ritmos!'
+          notes: '⚡ Series de velocidad 5x800m en pista de atletismo. ¡Sincronizado de Strava cumpliendo los ritmos!',
+          splits: [
+            { splitNumber: 1, distance: 1000, time: "04:35" },
+            { splitNumber: 2, distance: 1000, time: "04:28" },
+            { splitNumber: 3, distance: 1000, time: "04:22" },
+            { splitNumber: 4, distance: 1000, time: "04:18" },
+            { splitNumber: 5, distance: 1000, time: "04:27" }
+          ]
         },
         {
           id: `strava-mock-3-${Date.now()}`,
@@ -1487,7 +1507,25 @@ export function useAppData() {
           heartRate: 142,
           rpe: 6,
           terrain: 'Tierra',
-          notes: '⛰️ Fondo largo aeróbico de fin de semana en sendero mixto. ¡Sincronizado de Strava con buena base mitocondrial!'
+          notes: '⛰️ Fondo largo aeróbico de fin de semana en sendero mixto. ¡Sincronizado de Strava con buena base mitocondrial!',
+          splits: [
+            { splitNumber: 1, distance: 1000, time: "05:10" },
+            { splitNumber: 2, distance: 1000, time: "05:05" },
+            { splitNumber: 3, distance: 1000, time: "05:00" },
+            { splitNumber: 4, distance: 1000, time: "04:55" },
+            { splitNumber: 5, distance: 1000, time: "04:52" },
+            { splitNumber: 6, distance: 1000, time: "04:48" },
+            { splitNumber: 7, distance: 1000, time: "04:45" },
+            { splitNumber: 8, distance: 1000, time: "04:42" },
+            { splitNumber: 9, distance: 1000, time: "04:40" },
+            { splitNumber: 10, distance: 1000, time: "04:38" },
+            { splitNumber: 11, distance: 1000, time: "04:35" },
+            { splitNumber: 12, distance: 1000, time: "04:32" },
+            { splitNumber: 13, distance: 1000, time: "04:35" },
+            { splitNumber: 14, distance: 1000, time: "04:40" },
+            { splitNumber: 15, distance: 1000, time: "04:50" },
+            { splitNumber: 16, distance: 500, time: "02:23" }
+          ]
         }
       ];
 
@@ -1605,6 +1643,45 @@ export function useAppData() {
         );
 
         if (!isDup) {
+          let runSplits = null;
+          let maxCadenceVal = null;
+          try {
+            const detailResponse = await fetch(`https://www.strava.com/api/v3/activities/${run.id}`, {
+              headers: { 'Authorization': `Bearer ${accessToken}` }
+            });
+            if (detailResponse.ok) {
+              const detailData = await detailResponse.json();
+              if (detailData.splits_metric && detailData.splits_metric.length > 0) {
+                runSplits = detailData.splits_metric.map((s, sIdx) => {
+                  const splitSecs = s.moving_time || s.elapsed_time || 0;
+                  const splitHours = Math.floor(splitSecs / 3600);
+                  const splitMins = Math.floor((splitSecs % 3600) / 60);
+                  const splitS = Math.round(splitSecs % 60);
+                  
+                  let timeStr = "";
+                  if (splitHours > 0) {
+                    timeStr = `${String(splitHours).padStart(2, '0')}:${String(splitMins).padStart(2, '0')}:${String(splitS).padStart(2, '0')}`;
+                  } else {
+                    timeStr = `${String(splitMins).padStart(2, '0')}:${String(splitS).padStart(2, '0')}`;
+                  }
+
+                  return {
+                    splitNumber: s.split || (sIdx + 1),
+                    distance: Math.round(s.distance) || 1000,
+                    time: timeStr
+                  };
+                });
+              }
+
+              if (detailData.max_cadence) {
+                const rawMaxCad = detailData.max_cadence;
+                maxCadenceVal = rawMaxCad < 110 ? Math.round(rawMaxCad * 2) : Math.round(rawMaxCad);
+              }
+            }
+          } catch (detailError) {
+            console.error(`Error fetching detailed activity ${run.id} from Strava:`, detailError);
+          }
+
           const newWorkout = {
             id: `strava-${run.id}`,
             type: 'running',
@@ -1614,7 +1691,13 @@ export function useAppData() {
             heartRate: run.has_heartrate ? Math.round(run.average_heartrate) : null,
             rpe: run.suffer_score ? Math.min(10, Math.max(1, Math.round(run.suffer_score / 12))) : 6,
             terrain: 'Asfalto',
-            notes: `${run.name}${run.description ? ' - ' + run.description : ''} (Sincronizado vía Strava Hub)`
+            notes: `${run.name}${run.description ? ' - ' + run.description : ''} (Sincronizado vía Strava Hub)`,
+            // Advanced metrics from Strava
+            maxSpeed: run.max_speed ? `${(run.max_speed * 3.6).toFixed(1)} km/h` : null,
+            avgCadence: run.average_cadence ? (run.average_cadence < 110 ? Math.round(run.average_cadence * 2) : Math.round(run.average_cadence)) : null,
+            maxCadence: maxCadenceVal,
+            elevationGain: run.total_elevation_gain ? Math.round(run.total_elevation_gain) : null,
+            splits: runSplits
           };
           newWorkoutsList.push(newWorkout);
           addedCount++;

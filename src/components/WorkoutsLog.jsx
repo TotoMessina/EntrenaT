@@ -718,7 +718,7 @@ export default function WorkoutsLog({ workouts, shoes = [], onDeleteWorkout, onU
                             <div className="splits-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))', gap: '0.5rem' }}>
                               {w.splits.map((s, idx) => (
                                 <div key={idx} className="split-badge" style={{ background: 'rgba(16, 185, 129, 0.1)', padding: '0.3rem 0.5rem', borderRadius: '6px', textAlign: 'center', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
-                                  <span className="block text-xs text-secondary mb-1">Km {s.km}</span>
+                                  <span className="block text-xs text-secondary mb-1">Km {s.splitNumber || s.km}</span>
                                   <span className="block font-bold text-sm text-running">{s.time}</span>
                                 </div>
                               ))}
